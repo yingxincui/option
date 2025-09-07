@@ -3,6 +3,7 @@ import akshare as ak
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import numpy as np
 
@@ -54,6 +55,7 @@ ETF_CONFIG = {
     "深证100ETF (159901)": "159901"
 }
 
+@st.cache_data(ttl=86400)  # 缓存24小时
 def load_etf_data(symbol, period="daily", days=250):
     """加载ETF历史数据"""
     try:
@@ -187,6 +189,68 @@ def analyze_technical_signals(df):
     
     return signals
 
+def create_trend_chart(df, symbol_name):
+    """创建趋势型指标图表（价格+均线+MACD）"""
+    try:
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.05,
+            subplot_titles=(f'{symbol_name} 趋势型指标分析', 'MACD指标'),
+            row_heights=[0.7, 0.3]
+        )
+        
+        # 添加K线图
+        fig.add_trace(
+            go.Candlestick(
+                x=df.index,
+                open=df['开盘'],
+                high=df['最高'],
+                low=df['最低'],
+                close=df['收盘'],
+                name='K线',
+                increasing_line_color='#dc3545',
+                decreasing_line_color='#28a745'
+            ),
+            row=1, col=1
+        )
+        
+        # 添加均线
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA5'], name='MA5', line=dict(color='#ff6b6b', width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA10'], name='MA10', line=dict(color='#4ecdc4', width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name='MA20', line=dict(color='#45b7d1', width=2)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], name='MA60', line=dict(color='#96ceb4', width=2)), row=1, col=1)
+        
+        # 添加MACD
+        fig.add_trace(go.Scatter(x=df.index, y=df['MACD'], name='MACD', line=dict(color='#ff6b6b', width=2)), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MACD_Signal'], name='Signal', line=dict(color='#4ecdc4', width=2)), row=2, col=1)
+        
+        # 添加MACD柱状图
+        colors = ['#dc3545' if val >= 0 else '#28a745' for val in df['MACD_Histogram']]
+        fig.add_trace(go.Bar(x=df.index, y=df['MACD_Histogram'], name='Histogram', marker_color=colors, opacity=0.6), row=2, col=1)
+        
+        # 添加零轴线
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
+        
+        # 更新布局
+        fig.update_layout(
+            title=f'{symbol_name} 趋势型指标分析',
+            xaxis_rangeslider_visible=False,
+            height=600,
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        # 更新坐标轴
+        fig.update_xaxes(title_text="日期", row=2, col=1)
+        fig.update_yaxes(title_text="价格", row=1, col=1)
+        fig.update_yaxes(title_text="MACD", row=2, col=1)
+        
+        return fig
+    except Exception as e:
+        st.error(f"创建趋势型图表失败: {e}")
+        return None
+
 def create_etf_chart(df, symbol_name):
     """创建ETF技术分析图表"""
     if df is None or df.empty:
@@ -249,6 +313,58 @@ def create_etf_chart(df, symbol_name):
     
     return fig
 
+def create_oscillator_chart(df, symbol_name):
+    """创建摆动型指标图表（RSI+KDJ）"""
+    try:
+        fig = make_subplots(
+            rows=3, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.05,
+            subplot_titles=(f'{symbol_name} 摆动型指标分析', 'RSI指标', 'KDJ指标'),
+            row_heights=[0.4, 0.3, 0.3]
+        )
+        
+        # 添加价格线
+        fig.add_trace(go.Scatter(x=df.index, y=df['收盘'], name='收盘价', line=dict(color='#1f77b4', width=2)), row=1, col=1)
+        
+        # 添加RSI
+        fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name='RSI', line=dict(color='#ff6b6b', width=2)), row=2, col=1)
+        
+        # 添加RSI超买超卖线
+        fig.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="超买线(70)", row=2, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="green", annotation_text="超卖线(30)", row=2, col=1)
+        fig.add_hline(y=50, line_dash="dot", line_color="gray", row=2, col=1)
+        
+        # 添加KDJ
+        if 'K' in df.columns and 'D' in df.columns and 'J' in df.columns:
+            fig.add_trace(go.Scatter(x=df.index, y=df['K'], name='K', line=dict(color='#ff6b6b', width=2)), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['D'], name='D', line=dict(color='#4ecdc4', width=2)), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['J'], name='J', line=dict(color='#45b7d1', width=2)), row=3, col=1)
+            
+            # 添加KDJ超买超卖线
+            fig.add_hline(y=80, line_dash="dash", line_color="red", annotation_text="超买线(80)", row=3, col=1)
+            fig.add_hline(y=20, line_dash="dash", line_color="green", annotation_text="超卖线(20)", row=3, col=1)
+            fig.add_hline(y=50, line_dash="dot", line_color="gray", row=3, col=1)
+        
+        # 更新布局
+        fig.update_layout(
+            title=f'{symbol_name} 摆动型指标分析',
+            height=700,
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        # 更新坐标轴
+        fig.update_xaxes(title_text="日期", row=3, col=1)
+        fig.update_yaxes(title_text="价格", row=1, col=1)
+        fig.update_yaxes(title_text="RSI", range=[0, 100], row=2, col=1)
+        fig.update_yaxes(title_text="KDJ", range=[0, 100], row=3, col=1)
+        
+        return fig
+    except Exception as e:
+        st.error(f"创建摆动型图表失败: {e}")
+        return None
+
 def create_macd_chart(df, symbol_name):
     """创建MACD图表"""
     if df is None or df.empty:
@@ -292,6 +408,132 @@ def create_macd_chart(df, symbol_name):
     
     return fig
 
+def create_energy_chart(df, symbol_name):
+    """创建能量型指标图表（成交量+OBV）"""
+    try:
+        fig = make_subplots(
+            rows=3, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.05,
+            subplot_titles=(f'{symbol_name} 能量型指标分析', '成交量', 'OBV指标'),
+            row_heights=[0.4, 0.3, 0.3]
+        )
+        
+        # 添加价格线
+        fig.add_trace(go.Scatter(x=df.index, y=df['收盘'], name='收盘价', line=dict(color='#1f77b4', width=2)), row=1, col=1)
+        
+        # 添加成交量
+        colors = ['#dc3545' if df['收盘'].iloc[i] >= df['收盘'].iloc[i-1] else '#28a745' 
+                 for i in range(1, len(df))]
+        colors.insert(0, '#dc3545')  # 第一个柱子
+        
+        fig.add_trace(go.Bar(x=df.index, y=df['成交量'], name='成交量', marker_color=colors, opacity=0.7), row=2, col=1)
+        
+        # 添加成交量均线
+        if 'Volume_MA5' in df.columns:
+            fig.add_trace(go.Scatter(x=df.index, y=df['Volume_MA5'], name='成交量MA5', line=dict(color='#ff6b6b', width=2)), row=2, col=1)
+        if 'Volume_MA10' in df.columns:
+            fig.add_trace(go.Scatter(x=df.index, y=df['Volume_MA10'], name='成交量MA10', line=dict(color='#4ecdc4', width=2)), row=2, col=1)
+        
+        # 添加OBV
+        if 'OBV' in df.columns:
+            fig.add_trace(go.Scatter(x=df.index, y=df['OBV'], name='OBV', line=dict(color='#ff6b6b', width=2)), row=3, col=1)
+            if 'OBV_MA10' in df.columns:
+                fig.add_trace(go.Scatter(x=df.index, y=df['OBV_MA10'], name='OBV_MA10', line=dict(color='#4ecdc4', width=2)), row=3, col=1)
+        
+        # 更新布局
+        fig.update_layout(
+            title=f'{symbol_name} 能量型指标分析',
+            height=700,
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        # 更新坐标轴
+        fig.update_xaxes(title_text="日期", row=3, col=1)
+        fig.update_yaxes(title_text="价格", row=1, col=1)
+        fig.update_yaxes(title_text="成交量", row=2, col=1)
+        fig.update_yaxes(title_text="OBV", row=3, col=1)
+        
+        return fig
+    except Exception as e:
+        st.error(f"创建能量型图表失败: {e}")
+        return None
+
+def create_space_chart(df, symbol_name):
+    """创建空间型指标图表（布林带+支撑压力）"""
+    try:
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.05,
+            subplot_titles=(f'{symbol_name} 空间型指标分析', '布林带指标'),
+            row_heights=[0.7, 0.3]
+        )
+        
+        # 添加K线图
+        fig.add_trace(
+            go.Candlestick(
+                x=df.index,
+                open=df['开盘'],
+                high=df['最高'],
+                low=df['最低'],
+                close=df['收盘'],
+                name='K线',
+                increasing_line_color='#dc3545',
+                decreasing_line_color='#28a745'
+            ),
+            row=1, col=1
+        )
+        
+        # 添加布林带
+        if 'BB_Upper' in df.columns and 'BB_Lower' in df.columns and 'BB_Middle' in df.columns:
+            # 布林带上轨
+            fig.add_trace(go.Scatter(x=df.index, y=df['BB_Upper'], name='布林上轨', line=dict(color='#ff6b6b', width=1, dash='dash')), row=1, col=1)
+            # 布林带中轨
+            fig.add_trace(go.Scatter(x=df.index, y=df['BB_Middle'], name='布林中轨', line=dict(color='#4ecdc4', width=2)), row=1, col=1)
+            # 布林带下轨
+            fig.add_trace(go.Scatter(x=df.index, y=df['BB_Lower'], name='布林下轨', line=dict(color='#45b7d1', width=1, dash='dash')), row=1, col=1)
+            
+            # 填充布林带区域
+            fig.add_trace(go.Scatter(
+                x=df.index.tolist() + df.index.tolist()[::-1],
+                y=df['BB_Upper'].tolist() + df['BB_Lower'].tolist()[::-1],
+                fill='toself',
+                fillcolor='rgba(255, 107, 107, 0.1)',
+                line=dict(color='rgba(255,255,255,0)'),
+                name='布林带区域',
+                showlegend=False
+            ), row=1, col=1)
+        
+        # 添加均线作为支撑压力参考
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], name='MA20', line=dict(color='#96ceb4', width=2)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], name='MA60', line=dict(color='#feca57', width=2)), row=1, col=1)
+        
+        # 添加布林带宽度指标
+        if 'BB_Upper' in df.columns and 'BB_Lower' in df.columns:
+            bb_width = ((df['BB_Upper'] - df['BB_Lower']) / df['BB_Middle']) * 100
+            fig.add_trace(go.Scatter(x=df.index, y=bb_width, name='布林带宽度%', line=dict(color='#ff6b6b', width=2)), row=2, col=1)
+        
+        # 更新布局
+        fig.update_layout(
+            title=f'{symbol_name} 空间型指标分析',
+            xaxis_rangeslider_visible=False,
+            height=600,
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        # 更新坐标轴
+        fig.update_xaxes(title_text="日期", row=2, col=1)
+        fig.update_yaxes(title_text="价格", row=1, col=1)
+        fig.update_yaxes(title_text="布林带宽度%", row=2, col=1)
+        
+        return fig
+    except Exception as e:
+        st.error(f"创建空间型图表失败: {e}")
+        return None
+
 def create_volume_chart(df, symbol_name):
     """创建成交量图表"""
     if df is None or df.empty:
@@ -323,6 +565,69 @@ def create_volume_chart(df, symbol_name):
         yaxis_title="成交量",
         height=300,
         hovermode='x unified'
+    )
+    
+    return fig
+
+def create_radar_chart(trend_points, osc_points, energy_points, space_points, symbol_name):
+    """创建四象限雷达图"""
+    # 计算各象限的评分（0-2分）
+    trend_score = min(trend_points, 2)
+    osc_score = min(osc_points, 2)
+    energy_score = min(energy_points, 2)
+    space_score = min(space_points, 2)
+    
+    # 创建雷达图数据
+    categories = ['趋势型', '摆动型', '能量型', '空间型']
+    values = [trend_score, osc_score, energy_score, space_score]
+    
+    # 创建雷达图
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatterpolar(
+        r=values,
+        theta=categories,
+        fill='toself',
+        name=symbol_name,
+        line_color='#1f77b4',
+        fillcolor='rgba(31, 119, 180, 0.3)'
+    ))
+    
+    # 添加参考线（满分线）
+    fig.add_trace(go.Scatterpolar(
+        r=[2, 2, 2, 2],
+        theta=categories,
+        fill='none',
+        name='满分参考',
+        line_color='lightgray',
+        line_dash='dash'
+    ))
+    
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 2],
+                tickmode='linear',
+                tick0=0,
+                dtick=0.5,
+                tickfont=dict(size=10)
+            ),
+            angularaxis=dict(
+                tickfont=dict(size=12)
+            )
+        ),
+        title=f"{symbol_name} 四象限技术分析雷达图",
+        title_x=0.5,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        height=400
     )
     
     return fig
@@ -502,30 +807,88 @@ def display_comprehensive_analysis(df, signals, symbol_name):
         status_emoji = "🔴"
         status_color = "darkred"
     
-    # 显示综合结论
-    col1, col2 = st.columns([2, 1])
+    # 投资建议（放在最前面）
+    st.markdown("### 💡 投资建议")
+    
+    # 做多/做空建议
+    if score_percentage >= 80:
+        direction = "强烈做多"
+        direction_emoji = "🚀"
+        direction_color = "green"
+        option_advice = "买入当月实值一档看涨期权"
+        etf_advice = "可考虑买入ETF现货"
+        risk_level = "中等风险"
+    elif score_percentage >= 60:
+        direction = "适度做多"
+        direction_emoji = "📈"
+        direction_color = "lightgreen"
+        option_advice = "可考虑买入当月平值看涨期权"
+        etf_advice = "可适度买入ETF现货"
+        risk_level = "中低风险"
+    elif score_percentage >= 40:
+        direction = "观望"
+        direction_emoji = "👀"
+        direction_color = "orange"
+        option_advice = "建议观望，等待明确信号"
+        etf_advice = "建议观望，等待趋势明确"
+        risk_level = "低风险"
+    elif score_percentage >= 20:
+        direction = "适度做空"
+        direction_emoji = "📉"
+        direction_color = "red"
+        option_advice = "可考虑买入当月实值一档看跌期权"
+        etf_advice = "建议减仓或观望"
+        risk_level = "中高风险"
+    else:
+        direction = "强烈做空"
+        direction_emoji = "🔴"
+        direction_color = "darkred"
+        option_advice = "可考虑买入当月平值看跌期权"
+        etf_advice = "建议清仓或做空"
+        risk_level = "高风险"
+    
+    # 显示投资建议
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown(f"### {status_emoji} {overall_status}")
-        st.markdown(f"**综合评分**: {score:.1f}/{max_score} ({score_percentage:.1f}%)")
-        st.markdown(f"**{resonance_icon} 指标共振**: <span style='color:{resonance_color}; font-weight:600'>{resonance_conclusion}</span>（得分 {resonance_score}/8）", unsafe_allow_html=True)
+        st.markdown(f"**{direction_emoji} 操作方向**")
+        st.markdown(f"<span style='color: {direction_color}; font-size: 18px; font-weight: bold;'>{direction}</span>", unsafe_allow_html=True)
+        st.write(f"风险等级: {risk_level}")
     
     with col2:
-        # 创建评分进度条
-        st.markdown("**技术评分**")
-        progress = score / max_score
-        st.progress(progress)
-        
-        # 关键指标
-        st.markdown("**关键指标**")
-        st.write(f"当前价格: {current_price:.3f}")
-        st.write(f"涨跌幅: {price_change:.2f}%")
-        st.write(f"RSI: {rsi:.1f}")
-        st.write(f"量比: {volume_ratio:.2f}")
+        st.markdown("**📊 期权建议**")
+        st.write(option_advice)
+        if score_percentage >= 60:
+            st.write("• 建议选择实值或平值期权")
+            st.write("• 注意时间价值损耗")
+        elif score_percentage <= 40:
+            st.write("• 建议选择看跌期权")
+            st.write("• 注意波动率风险")
+    
+    with col3:
+        st.markdown("**📈 ETF现货建议**")
+        st.write(etf_advice)
+        if score_percentage >= 60:
+            st.write("• 可分批建仓")
+            st.write("• 设置止损位")
+        elif score_percentage <= 40:
+            st.write("• 建议减仓操作")
+            st.write("• 等待技术面改善")
+    
+    st.markdown("---")
+    
+    # 显示综合结论
+    st.markdown(f"### {status_emoji} {overall_status}")
+    st.markdown(f"**综合评分**: {score:.1f}/{max_score} ({score_percentage:.1f}%)")
+    st.markdown(f"**{resonance_icon} 指标共振**: <span style='color:{resonance_color}; font-weight:600'>{resonance_conclusion}</span>（得分 {resonance_score}/8）", unsafe_allow_html=True)
     
     # 四象限详细分析
     st.markdown("---")
     st.markdown("### 📊 四象限技术分析")
+    
+    # 添加雷达图
+    radar_fig = create_radar_chart(trend_points, osc_points, energy_points, space_points, symbol_name)
+    st.plotly_chart(radar_fig, use_container_width=True)
     
     # 添加共振分析依据说明（默认折叠）
     with st.expander("📚 共振分析依据说明", expanded=False):
@@ -665,75 +1028,6 @@ def display_comprehensive_analysis(df, signals, symbol_name):
     else:
         st.write("当前信号：⚪ 无交叉信号")
     
-    # 投资建议
-    st.markdown("---")
-    st.markdown("### 💡 投资建议")
-    
-    # 做多/做空建议
-    if score_percentage >= 80:
-        direction = "强烈做多"
-        direction_emoji = "🚀"
-        direction_color = "green"
-        option_advice = "买入当月实值一档看涨期权"
-        etf_advice = "可考虑买入ETF现货"
-        risk_level = "中等风险"
-    elif score_percentage >= 60:
-        direction = "适度做多"
-        direction_emoji = "📈"
-        direction_color = "lightgreen"
-        option_advice = "可考虑买入当月平值看涨期权"
-        etf_advice = "可适度买入ETF现货"
-        risk_level = "中低风险"
-    elif score_percentage >= 40:
-        direction = "观望"
-        direction_emoji = "👀"
-        direction_color = "orange"
-        option_advice = "建议观望，等待明确信号"
-        etf_advice = "建议观望，等待趋势明确"
-        risk_level = "低风险"
-    elif score_percentage >= 20:
-        direction = "适度做空"
-        direction_emoji = "📉"
-        direction_color = "red"
-        option_advice = "可考虑买入当月实值一档看跌期权"
-        etf_advice = "建议减仓或观望"
-        risk_level = "中高风险"
-    else:
-        direction = "强烈做空"
-        direction_emoji = "🔴"
-        direction_color = "darkred"
-        option_advice = "可考虑买入当月平值看跌期权"
-        etf_advice = "建议清仓或做空"
-        risk_level = "高风险"
-    
-    # 显示做多/做空建议
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown(f"**{direction_emoji} 操作方向**")
-        st.markdown(f"<span style='color: {direction_color}; font-size: 18px; font-weight: bold;'>{direction}</span>", unsafe_allow_html=True)
-        st.write(f"风险等级: {risk_level}")
-    
-    with col2:
-        st.markdown("**📊 期权建议**")
-        st.write(option_advice)
-        if score_percentage >= 60:
-            st.write("• 建议选择实值或平值期权")
-            st.write("• 注意时间价值损耗")
-        elif score_percentage <= 40:
-            st.write("• 建议选择看跌期权")
-            st.write("• 注意波动率风险")
-    
-    with col3:
-        st.markdown("**📈 ETF现货建议**")
-        st.write(etf_advice)
-        if score_percentage >= 60:
-            st.write("• 可分批建仓")
-            st.write("• 设置止损位")
-        elif score_percentage <= 40:
-            st.write("• 建议减仓操作")
-            st.write("• 等待技术面改善")
-    
     # 风险提示
     st.markdown("---")
     st.markdown("### ⚠️ 风险提示")
@@ -746,10 +1040,83 @@ def display_comprehensive_analysis(df, signals, symbol_name):
 
 
 
+def display_trend_analysis_conclusion(df, signals, symbol_name):
+    """显示趋势型分析结论"""
+    latest = df.iloc[-1]
+    current_price = latest['收盘']
+    ma5 = latest['MA5']
+    ma10 = latest['MA10']
+    ma20 = latest['MA20']
+    macd = latest['MACD']
+    macd_signal = latest['MACD_Signal']
+    
+    # 均线排列分析
+    if ma5 > ma10 > ma20:
+        ma_alignment = '<span style="color: #28a745;">✓</span> 多头排列，趋势向上'
+        ma_emoji = "✅"
+    elif ma5 < ma10 < ma20:
+        ma_alignment = '<span style="color: #dc3545;">✗ 空头排列，趋势向下</span>'
+        ma_emoji = "❌"
+    else:
+        ma_alignment = '<span style="color: #ffc107;">⚠️</span> 均线交织，趋势不明'
+        ma_emoji = "⚪"
+    
+    # MACD分析
+    if macd > 0:
+        if macd > macd_signal:
+            macd_status = '<span style="color: #28a745;">✓</span> MACD在零轴上方且金叉，多头强势'
+            macd_emoji = "🚀"
+        else:
+            macd_status = '<span style="color: #ffc107;">⚠️</span> MACD在零轴上方但死叉，多头调整'
+            macd_emoji = "⚠️"
+    else:
+        if macd > macd_signal:
+            macd_status = '<span style="color: #28a745;">✓</span> MACD在零轴下方但金叉，空头转多'
+            macd_emoji = "🟢"
+        else:
+            macd_status = '<span style="color: #dc3545;">✗ MACD在零轴下方且死叉，空头强势</span>'
+            macd_emoji = "🔴"
+    
+    # 价格位置分析
+    if current_price > ma20:
+        if current_price > ma10:
+            if current_price > ma5:
+                price_position = '<span style="color: #28a745;">✓</span> 价格位于所有均线之上，技术面强势'
+                price_emoji = "🚀"
+            else:
+                price_position = '<span style="color: #ffc107;">⚠️</span> 价格在MA5之下但MA10、MA20之上，短期调整'
+                price_emoji = "⚠️"
+        else:
+            price_position = '<span style="color: #ffc107;">⚠️</span> 价格在MA10之下但MA20之上，中期调整'
+            price_emoji = "📉"
+    else:
+        price_position = '<span style="color: #dc3545;">✗ 价格在所有均线之下，技术面弱势</span>'
+        price_emoji = "🔴"
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"**{ma_emoji} 均线排列**")
+        st.markdown(ma_alignment, unsafe_allow_html=True)
+        st.write(f"MA5: {ma5:.3f}")
+        st.write(f"MA10: {ma10:.3f}")
+        st.write(f"MA20: {ma20:.3f}")
+    
+    with col2:
+        st.markdown(f"**{macd_emoji} MACD状态**")
+        st.markdown(macd_status, unsafe_allow_html=True)
+        st.write(f"MACD: {macd:.4f}")
+        st.write(f"Signal: {macd_signal:.4f}")
+        st.write(f"Histogram: {latest['MACD_Histogram']:.4f}")
+    
+    with col3:
+        st.markdown(f"**{price_emoji} 价格位置**")
+        st.markdown(price_position, unsafe_allow_html=True)
+        st.write(f"当前价格: {current_price:.3f}")
+        st.write(f"相对MA20: {((current_price/ma20-1)*100):+.2f}%")
+
 def display_main_chart_conclusion(df, signals, symbol_name):
     """显示主图表分析结论"""
-    st.markdown("---")
-    st.markdown("### 📊 主图表分析结论")
     
     latest = df.iloc[-1]
     current_price = latest['收盘']
@@ -761,60 +1128,138 @@ def display_main_chart_conclusion(df, signals, symbol_name):
     if current_price > ma20:
         if current_price > ma10:
             if current_price > ma5:
-                price_position = "价格位于所有均线之上，技术面强势"
+                price_position = '<span style="color: #28a745;">✓</span> 价格位于所有均线之上，技术面强势'
                 price_emoji = "🚀"
             else:
-                price_position = "价格在MA5之下但MA10、MA20之上，短期调整"
+                price_position = '<span style="color: #ffc107;">⚠️</span> 价格在MA5之下但MA10、MA20之上，短期调整'
                 price_emoji = "⚠️"
         else:
-            price_position = "价格在MA10之下但MA20之上，中期调整"
+            price_position = '<span style="color: #ffc107;">⚠️</span> 价格在MA10之下但MA20之上，中期调整'
             price_emoji = "📉"
     else:
-        price_position = "价格在所有均线之下，技术面弱势"
+        price_position = '<span style="color: #dc3545;">✗ 价格在所有均线之下，技术面弱势</span>'
         price_emoji = "🔴"
     
     # 均线排列分析
     if ma5 > ma10 > ma20:
-        ma_alignment = "多头排列，趋势向上"
+        ma_alignment = '<span style="color: #28a745;">✓</span> 多头排列，趋势向上'
         ma_emoji = "✅"
     elif ma5 < ma10 < ma20:
-        ma_alignment = "空头排列，趋势向下"
+        ma_alignment = '<span style="color: #dc3545;">✗ 空头排列，趋势向下</span>'
         ma_emoji = "❌"
     else:
-        ma_alignment = "均线交织，趋势不明"
+        ma_alignment = '<span style="color: #ffc107;">⚠️</span> 均线交织，趋势不明'
         ma_emoji = "⚪"
     
     # 布林带分析
     bb_upper = latest['BB_Upper']
     bb_lower = latest['BB_Lower']
     if current_price > bb_upper:
-        bb_position = "价格突破布林上轨，可能超买"
+        bb_position = '<span style="color: #ffc107;">⚠️</span> 价格突破布林上轨，可能超买'
         bb_emoji = "🔴"
     elif current_price < bb_lower:
-        bb_position = "价格跌破布林下轨，可能超卖"
+        bb_position = '<span style="color: #28a745;">✓</span> 价格跌破布林下轨，可能超卖'
         bb_emoji = "🟢"
     else:
-        bb_position = "价格在布林带内，正常波动"
+        bb_position = '<span style="color: #28a745;">✓</span> 价格在布林带内，正常波动'
         bb_emoji = "⚪"
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown(f"**{price_emoji} 价格位置**")
-        st.write(price_position)
+        st.markdown(price_position, unsafe_allow_html=True)
     
     with col2:
         st.markdown(f"**{ma_emoji} 均线排列**")
-        st.write(ma_alignment)
+        st.markdown(ma_alignment, unsafe_allow_html=True)
     
     with col3:
         st.markdown(f"**{bb_emoji} 布林带位置**")
-        st.write(bb_position)
+        st.markdown(bb_position, unsafe_allow_html=True)
+
+def display_oscillator_analysis_conclusion(df, signals, symbol_name):
+    """显示摆动型分析结论"""
+    latest = df.iloc[-1]
+    rsi = latest['RSI']
+    
+    # RSI分析
+    if rsi < 30:
+        rsi_status = '<span style="color: #28a745;">✓</span> RSI超卖，反弹机会'
+        rsi_emoji = "🟢"
+    elif rsi > 70:
+        rsi_status = '<span style="color: #dc3545;">✗ RSI超买，回调风险</span>'
+        rsi_emoji = "🔴"
+    else:
+        rsi_status = '<span style="color: #ffc107;">⚠️</span> RSI中性，趋势延续'
+        rsi_emoji = "⚪"
+    
+    # KDJ分析
+    if 'K' in latest and 'D' in latest and 'J' in latest:
+        k = latest['K']
+        d = latest['D']
+        j = latest['J']
+        
+        if k > d and k > 50:
+            kdj_status = '<span style="color: #28a745;">✓</span> KDJ金叉且强势'
+            kdj_emoji = "🚀"
+        elif k < d and k < 50:
+            kdj_status = '<span style="color: #dc3545;">✗ KDJ死叉且弱势</span>'
+            kdj_emoji = "🔴"
+        else:
+            kdj_status = '<span style="color: #ffc107;">⚠️</span> KDJ中性'
+            kdj_emoji = "⚪"
+    else:
+        kdj_status = '<span style="color: #6c757d;">-</span> KDJ数据不可用'
+        kdj_emoji = "⚪"
+        k, d, j = 0, 0, 0
+    
+    # 综合摆动型分析
+    if rsi < 30 and 'K' in latest and latest['K'] > latest['D']:
+        overall_status = '<span style="color: #28a745;">✓</span> 摆动型指标共振看多'
+        overall_emoji = "🚀"
+    elif rsi > 70 and 'K' in latest and latest['K'] < latest['D']:
+        overall_status = '<span style="color: #dc3545;">✗ 摆动型指标共振看空</span>'
+        overall_emoji = "🔴"
+    else:
+        overall_status = '<span style="color: #ffc107;">⚠️</span> 摆动型指标分化'
+        overall_emoji = "⚪"
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"**{rsi_emoji} RSI指标**")
+        st.markdown(rsi_status, unsafe_allow_html=True)
+        st.write(f"RSI: {rsi:.1f}")
+        if rsi < 30:
+            st.write("• 超卖区域，关注反弹")
+        elif rsi > 70:
+            st.write("• 超买区域，注意回调")
+        else:
+            st.write("• 中性区域，趋势延续")
+    
+    with col2:
+        st.markdown(f"**{kdj_emoji} KDJ指标**")
+        st.markdown(kdj_status, unsafe_allow_html=True)
+        if 'K' in latest:
+            st.write(f"K: {k:.1f}")
+            st.write(f"D: {d:.1f}")
+            st.write(f"J: {j:.1f}")
+        else:
+            st.write("• 数据不可用")
+    
+    with col3:
+        st.markdown(f"**{overall_emoji} 综合判断**")
+        st.markdown(overall_status, unsafe_allow_html=True)
+        if rsi < 30:
+            st.write("• 超卖反弹机会")
+        elif rsi > 70:
+            st.write("• 超买回调风险")
+        else:
+            st.write("• 中性震荡整理")
 
 def display_macd_chart_conclusion(df, signals, symbol_name):
     """显示MACD图表分析结论"""
-    st.markdown("---")
-    st.markdown("### 📈 MACD分析结论")
     
     latest = df.iloc[-1]
     macd = latest['MACD']
@@ -824,29 +1269,29 @@ def display_macd_chart_conclusion(df, signals, symbol_name):
     # MACD位置分析
     if macd > 0:
         if macd > macd_signal:
-            macd_position = "MACD在零轴上方且金叉，多头强势"
+            macd_position = '<span style="color: #28a745;">✓</span> MACD在零轴上方且金叉，多头强势'
             macd_emoji = "🚀"
         else:
-            macd_position = "MACD在零轴上方但死叉，多头调整"
+            macd_position = '<span style="color: #ffc107;">⚠️</span> MACD在零轴上方但死叉，多头调整'
             macd_emoji = "⚠️"
     else:
         if macd > macd_signal:
-            macd_position = "MACD在零轴下方但金叉，空头转多"
+            macd_position = '<span style="color: #28a745;">✓</span> MACD在零轴下方但金叉，空头转多'
             macd_emoji = "🟢"
         else:
-            macd_position = "MACD在零轴下方且死叉，空头强势"
+            macd_position = '<span style="color: #dc3545;">✗ MACD在零轴下方且死叉，空头强势</span>'
             macd_emoji = "🔴"
     
     # MACD柱状图分析
     if macd_hist > 0:
         if macd_hist > latest['MACD_Histogram']:
-            hist_trend = "MACD柱状图放大，动能增强"
+            hist_trend = '<span style="color: #28a745;">✓</span> MACD柱状图放大，动能增强'
             hist_emoji = "📈"
         else:
-            hist_trend = "MACD柱状图缩小，动能减弱"
+            hist_trend = '<span style="color: #ffc107;">⚠️</span> MACD柱状图缩小，动能减弱'
             hist_emoji = "📉"
     else:
-        hist_trend = "MACD柱状图为负，空头动能"
+        hist_trend = '<span style="color: #dc3545;">✗ MACD柱状图为负，空头动能</span>'
         hist_emoji = "🔴"
     
     # 趋势强度分析
@@ -865,20 +1310,214 @@ def display_macd_chart_conclusion(df, signals, symbol_name):
     
     with col1:
         st.markdown(f"**{macd_emoji} MACD位置**")
-        st.write(macd_position)
+        st.markdown(macd_position, unsafe_allow_html=True)
     
     with col2:
         st.markdown(f"**{hist_emoji} 柱状图**")
-        st.write(hist_trend)
+        st.markdown(hist_trend, unsafe_allow_html=True)
     
     with col3:
         st.markdown(f"**{trend_emoji} 趋势强度**")
         st.write(trend_strength)
 
+def display_energy_analysis_conclusion(df, signals, symbol_name):
+    """显示能量型分析结论"""
+    latest = df.iloc[-1]
+    current_volume = latest['成交量']
+    volume_ma5 = latest['Volume_MA5']
+    volume_ma10 = latest['Volume_MA10']
+    volume_ratio_5 = current_volume / volume_ma5
+    price_change = latest['涨跌幅']
+    
+    # 成交量分析
+    if volume_ratio_5 > 2.0:
+        volume_status = '<span style="color: #28a745;">✓</span> 成交量显著放大，资金关注度高'
+        volume_emoji = "🔥"
+    elif volume_ratio_5 > 1.5:
+        volume_status = '<span style="color: #28a745;">✓</span> 成交量温和放大，资金关注度提升'
+        volume_emoji = "📈"
+    elif volume_ratio_5 > 0.8:
+        volume_status = '<span style="color: #28a745;">✓</span> 成交量正常，资金关注度一般'
+        volume_emoji = "⚪"
+    else:
+        volume_status = '<span style="color: #dc3545;">✗ 成交量萎缩，资金关注度低</span>'
+        volume_emoji = "📉"
+    
+    # OBV分析
+    if 'OBV' in df.columns and 'OBV_MA10' in df.columns:
+        obv = latest['OBV']
+        obv_ma = latest['OBV_MA10']
+        obv_ratio = obv / obv_ma if obv_ma != 0 else 1
+        
+        if obv > obv_ma and obv_ratio > 1.1:
+            obv_status = '<span style="color: #28a745;">✓</span> OBV强势，资金流入'
+            obv_emoji = "🚀"
+        elif obv < obv_ma and obv_ratio < 0.9:
+            obv_status = '<span style="color: #dc3545;">✗ OBV弱势，资金流出</span>'
+            obv_emoji = "🔴"
+        else:
+            obv_status = '<span style="color: #ffc107;">⚠️</span> OBV中性，资金平衡'
+            obv_emoji = "⚪"
+    else:
+        obv_status = '<span style="color: #6c757d;">-</span> OBV数据不可用'
+        obv_emoji = "⚪"
+        obv, obv_ma = 0, 0
+    
+    # 量价关系分析
+    if price_change > 0 and volume_ratio_5 > 1.2:
+        pv_status = '<span style="color: #28a745;">✓</span> 量价齐升，上涨动能强劲'
+        pv_emoji = "🚀"
+    elif price_change < 0 and volume_ratio_5 > 1.2:
+        pv_status = '<span style="color: #dc3545;">✗ 量价齐跌，下跌动能强劲</span>'
+        pv_emoji = "🔴"
+    elif price_change > 0 and volume_ratio_5 < 0.8:
+        pv_status = '<span style="color: #ffc107;">⚠️</span> 价升量缩，上涨动能不足'
+        pv_emoji = "⚠️"
+    elif price_change < 0 and volume_ratio_5 < 0.8:
+        pv_status = '<span style="color: #28a745;">✓</span> 价跌量缩，下跌动能不足'
+        pv_emoji = "🟢"
+    else:
+        pv_status = '<span style="color: #28a745;">✓</span> 量价关系正常'
+        pv_emoji = "⚪"
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"**{volume_emoji} 成交量分析**")
+        st.markdown(volume_status, unsafe_allow_html=True)
+        st.write(f"当前成交量: {current_volume:,}")
+        st.write(f"5日均量: {volume_ma5:,.0f}")
+        st.write(f"量比: {volume_ratio_5:.2f}")
+    
+    with col2:
+        st.markdown(f"**{obv_emoji} OBV分析**")
+        st.markdown(obv_status, unsafe_allow_html=True)
+        if 'OBV' in df.columns:
+            st.write(f"OBV: {obv:,.0f}")
+            st.write(f"OBV_MA10: {obv_ma:,.0f}")
+            st.write(f"OBV比率: {obv_ratio:.2f}")
+        else:
+            st.write("• 数据不可用")
+    
+    with col3:
+        st.markdown(f"**{pv_emoji} 量价关系**")
+        st.markdown(pv_status, unsafe_allow_html=True)
+        st.write(f"涨跌幅: {price_change:.2f}%")
+        st.write(f"量比: {volume_ratio_5:.2f}")
+        if price_change > 0 and volume_ratio_5 > 1.2:
+            st.write("• 量价齐升，强势上涨")
+        elif price_change < 0 and volume_ratio_5 > 1.2:
+            st.write("• 量价齐跌，强势下跌")
+        elif price_change > 0 and volume_ratio_5 < 0.8:
+            st.write("• 价升量缩，动能不足")
+        elif price_change < 0 and volume_ratio_5 < 0.8:
+            st.write("• 价跌量缩，动能不足")
+        else:
+            st.write("• 量价关系正常")
+
+def display_space_analysis_conclusion(df, signals, symbol_name):
+    """显示空间型分析结论"""
+    latest = df.iloc[-1]
+    current_price = latest['收盘']
+    
+    # 布林带分析
+    if 'BB_Upper' in df.columns and 'BB_Lower' in df.columns and 'BB_Middle' in df.columns:
+        bb_upper = latest['BB_Upper']
+        bb_lower = latest['BB_Lower']
+        bb_middle = latest['BB_Middle']
+        
+        if current_price > bb_upper:
+            bb_status = '<span style="color: #ffc107;">⚠️</span> 价格突破布林上轨，可能超买'
+            bb_emoji = "🔴"
+        elif current_price < bb_lower:
+            bb_status = '<span style="color: #28a745;">✓</span> 价格跌破布林下轨，可能超卖'
+            bb_emoji = "🟢"
+        else:
+            bb_status = '<span style="color: #28a745;">✓</span> 价格在布林带内，正常波动'
+            bb_emoji = "⚪"
+        
+        # 布林带宽度分析
+        bb_width = ((bb_upper - bb_lower) / bb_middle) * 100
+        if bb_width > 4:
+            width_status = '<span style="color: #ffc107;">⚠️</span> 布林带较宽，波动较大'
+            width_emoji = "⚠️"
+        elif bb_width < 2:
+            width_status = '<span style="color: #28a745;">✓</span> 布林带较窄，波动较小'
+            width_emoji = "🟢"
+        else:
+            width_status = '<span style="color: #28a745;">✓</span> 布林带正常，波动适中'
+            width_emoji = "⚪"
+    else:
+        bb_status = '<span style="color: #6c757d;">-</span> 布林带数据不可用'
+        bb_emoji = "⚪"
+        width_status = '<span style="color: #6c757d;">-</span> 宽度数据不可用'
+        width_emoji = "⚪"
+        bb_upper, bb_lower, bb_middle, bb_width = 0, 0, 0, 0
+    
+    # 支撑压力分析
+    ma20 = latest['MA20']
+    ma60 = latest['MA60']
+    
+    # 价格相对位置
+    if current_price > ma60:
+        if current_price > ma20:
+            support_status = '<span style="color: #28a745;">✓</span> 价格在关键均线之上，支撑较强'
+            support_emoji = "🚀"
+        else:
+            support_status = '<span style="color: #ffc107;">⚠️</span> 价格在MA20之下但MA60之上，支撑一般'
+            support_emoji = "⚠️"
+    else:
+        support_status = '<span style="color: #dc3545;">✗ 价格在关键均线之下，支撑较弱</span>'
+        support_emoji = "🔴"
+    
+    # 综合空间型分析
+    if current_price > bb_middle and current_price > ma20:
+        overall_status = '<span style="color: #28a745;">✓</span> 空间型指标偏多，支撑较强'
+        overall_emoji = "🚀"
+    elif current_price < bb_middle and current_price < ma20:
+        overall_status = '<span style="color: #dc3545;">✗ 空间型指标偏空，压力较大</span>'
+        overall_emoji = "🔴"
+    else:
+        overall_status = '<span style="color: #ffc107;">⚠️</span> 空间型指标中性，震荡整理'
+        overall_emoji = "⚪"
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"**{bb_emoji} 布林带位置**")
+        st.markdown(bb_status, unsafe_allow_html=True)
+        if 'BB_Upper' in df.columns:
+            st.write(f"上轨: {bb_upper:.3f}")
+            st.write(f"中轨: {bb_middle:.3f}")
+            st.write(f"下轨: {bb_lower:.3f}")
+        else:
+            st.write("• 数据不可用")
+    
+    with col2:
+        st.markdown(f"**{width_emoji} 布林带宽度**")
+        st.markdown(width_status, unsafe_allow_html=True)
+        if 'BB_Upper' in df.columns:
+            st.write(f"宽度: {bb_width:.2f}%")
+            if bb_width > 4:
+                st.write("• 波动较大，注意风险")
+            elif bb_width < 2:
+                st.write("• 波动较小，可能突破")
+            else:
+                st.write("• 波动适中，正常整理")
+        else:
+            st.write("• 数据不可用")
+    
+    with col3:
+        st.markdown(f"**{support_emoji} 支撑压力**")
+        st.markdown(support_status, unsafe_allow_html=True)
+        st.write(f"MA20: {ma20:.3f}")
+        st.write(f"MA60: {ma60:.3f}")
+        st.write(f"相对MA20: {((current_price/ma20-1)*100):+.2f}%")
+        st.markdown(f"**{overall_emoji} 综合判断**")
+        st.markdown(overall_status, unsafe_allow_html=True)
+
 def display_volume_chart_conclusion(df, signals, symbol_name):
     """显示成交量图表分析结论"""
-    st.markdown("---")
-    st.markdown("### 📊 成交量分析结论")
     
     latest = df.iloc[-1]
     current_volume = latest['成交量']
@@ -890,65 +1529,65 @@ def display_volume_chart_conclusion(df, signals, symbol_name):
     volume_ratio_10 = current_volume / volume_ma10
     
     if volume_ratio_5 > 2.0:
-        volume_level = "成交量显著放大，资金关注度高"
+        volume_level = '<span style="color: #28a745;">✓</span> 成交量显著放大，资金关注度高'
         volume_emoji = "🔥"
     elif volume_ratio_5 > 1.5:
-        volume_level = "成交量温和放大，资金关注度提升"
+        volume_level = '<span style="color: #28a745;">✓</span> 成交量温和放大，资金关注度提升'
         volume_emoji = "📈"
     elif volume_ratio_5 > 0.8:
-        volume_level = "成交量正常，资金关注度一般"
+        volume_level = '<span style="color: #28a745;">✓</span> 成交量正常，资金关注度一般'
         volume_emoji = "⚪"
     else:
-        volume_level = "成交量萎缩，资金关注度低"
+        volume_level = '<span style="color: #dc3545;">✗</span> 成交量萎缩，资金关注度低'
         volume_emoji = "📉"
     
     # 成交量趋势分析
     recent_volume = df['成交量'].tail(5)
     if recent_volume.iloc[-1] > recent_volume.iloc[-5]:
-        volume_trend = "成交量呈上升趋势"
+        volume_trend = '<span style="color: #28a745;">✓</span> 成交量呈上升趋势'
         trend_emoji = "🟢"
     elif recent_volume.iloc[-1] < recent_volume.iloc[-5]:
-        volume_trend = "成交量呈下降趋势"
+        volume_trend = '<span style="color: #dc3545;">✗</span> 成交量呈下降趋势'
         trend_emoji = "🔴"
     else:
-        volume_trend = "成交量横盘整理"
+        volume_trend = '<span style="color: #ffc107;">⚠️</span> 成交量横盘整理'
         trend_emoji = "⚪"
     
     # 量价关系分析
     price_change = latest['涨跌幅']
     if price_change > 0 and volume_ratio_5 > 1.2:
-        price_volume = "量价齐升，上涨动能强劲"
+        price_volume = '<span style="color: #28a745;">✓</span> 量价齐升，上涨动能强劲'
         pv_emoji = "🚀"
     elif price_change < 0 and volume_ratio_5 > 1.2:
-        price_volume = "量价齐跌，下跌动能强劲"
+        price_volume = '<span style="color: #dc3545;">✗</span> 量价齐跌，下跌动能强劲'
         pv_emoji = "🔴"
     elif price_change > 0 and volume_ratio_5 < 0.8:
-        price_volume = "价升量缩，上涨动能不足"
+        price_volume = '<span style="color: #ffc107;">⚠️</span> 价升量缩，上涨动能不足'
         pv_emoji = "⚠️"
     elif price_change < 0 and volume_ratio_5 < 0.8:
-        price_volume = "价跌量缩，下跌动能不足"
+        price_volume = '<span style="color: #28a745;">✓</span> 价跌量缩，下跌动能不足'
         pv_emoji = "🟢"
     else:
-        price_volume = "量价关系正常"
+        price_volume = '<span style="color: #28a745;">✓</span> 量价关系正常'
         pv_emoji = "⚪"
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown(f"**{volume_emoji} 成交量水平**")
-        st.write(volume_level)
+        st.markdown(volume_level, unsafe_allow_html=True)
         st.write(f"当前成交量: {current_volume:,}")
         st.write(f"5日均量: {volume_ma5:,.0f}")
     
     with col2:
         st.markdown(f"**{trend_emoji} 成交量趋势**")
-        st.write(volume_trend)
+        st.markdown(volume_trend, unsafe_allow_html=True)
         st.write(f"5日量比: {volume_ratio_5:.2f}")
         st.write(f"10日量比: {volume_ratio_10:.2f}")
     
     with col3:
         st.markdown(f"**{pv_emoji} 量价关系**")
-        st.write(price_volume)
+        st.markdown(price_volume, unsafe_allow_html=True)
         st.write(f"涨跌幅: {price_change:.2f}%")
 
 def main():
@@ -1005,19 +1644,6 @@ def main():
         # 分析技术信号
         signals = analyze_technical_signals(df)
         
-        # 显示当前价格信息
-        latest = df.iloc[-1]
-        st.subheader("📊 当前价格信息")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("当前价格", f"{latest['收盘']:.3f}")
-        with col2:
-            st.metric("涨跌幅", f"{latest['涨跌幅']:.2f}%")
-        with col3:
-            st.metric("成交量", f"{latest['成交量']:,}")
-        with col4:
-            st.metric("换手率", f"{latest['换手率']:.2f}%")
         
         # 显示融合的综合技术分析和总体结论
         display_comprehensive_analysis(df, signals, selected_etf)
@@ -1025,26 +1651,34 @@ def main():
         # 显示图表
         st.subheader("📈 技术分析图表")
         
-        # 主图表
-        main_chart = create_etf_chart(df, selected_etf)
-        if main_chart:
-            st.plotly_chart(main_chart, use_container_width=True)
-            # 主图表结论
-            display_main_chart_conclusion(df, signals, selected_etf)
+        # 四象限技术分析图表
+        # 1. 趋势型指标图表（价格+均线+MACD）
+        trend_chart = create_trend_chart(df, selected_etf)
+        if trend_chart:
+            st.plotly_chart(trend_chart, use_container_width=True)
+            # 趋势型分析结论
+            display_trend_analysis_conclusion(df, signals, selected_etf)
         
-        # MACD图表
-        macd_chart = create_macd_chart(df, selected_etf)
-        if macd_chart:
-            st.plotly_chart(macd_chart, use_container_width=True)
-            # MACD图表结论
-            display_macd_chart_conclusion(df, signals, selected_etf)
+        # 2. 摆动型指标图表（RSI+KDJ）
+        oscillator_chart = create_oscillator_chart(df, selected_etf)
+        if oscillator_chart:
+            st.plotly_chart(oscillator_chart, use_container_width=True)
+            # 摆动型分析结论
+            display_oscillator_analysis_conclusion(df, signals, selected_etf)
         
-        # 成交量图表
-        volume_chart = create_volume_chart(df, selected_etf)
-        if volume_chart:
-            st.plotly_chart(volume_chart, use_container_width=True)
-            # 成交量图表结论
-            display_volume_chart_conclusion(df, signals, selected_etf)
+        # 3. 能量型指标图表（成交量+OBV）
+        energy_chart = create_energy_chart(df, selected_etf)
+        if energy_chart:
+            st.plotly_chart(energy_chart, use_container_width=True)
+            # 能量型分析结论
+            display_energy_analysis_conclusion(df, signals, selected_etf)
+        
+        # 4. 空间型指标图表（布林带+支撑压力）
+        space_chart = create_space_chart(df, selected_etf)
+        if space_chart:
+            st.plotly_chart(space_chart, use_container_width=True)
+            # 空间型分析结论
+            display_space_analysis_conclusion(df, signals, selected_etf)
         
         # 显示历史数据
         st.subheader("📋 历史数据")

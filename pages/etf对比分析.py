@@ -3,6 +3,7 @@ import akshare as ak
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import numpy as np
 
@@ -55,6 +56,346 @@ ETF_CONFIG = {
     "深证100ETF (159901)": "159901"
 }
 
+# 颜色规则配置
+COLOR_RULES = {
+    "上涨": "#dc3545",  # 红色
+    "下跌": "#28a745",  # 绿色
+    "金叉": "#dc3545",  # 红色箭头
+    "死叉": "#28a745",  # 绿色箭头
+    "MACD正": "#dc3545",  # 红色
+    "MACD负": "#28a745"   # 绿色
+}
+
+def detect_ma_cross_signals(df):
+    """检测MA金叉和死叉信号"""
+    if df is None or df.empty or len(df) < 20:
+        return [], []
+    
+    golden_crosses = []
+    death_crosses = []
+    
+    # 检测MA5和MA10的金叉死叉
+    if 'MA5' in df.columns and 'MA10' in df.columns:
+        for i in range(1, len(df)):
+            # 金叉：MA5从下方穿越MA10
+            if (df['MA5'].iloc[i-1] <= df['MA10'].iloc[i-1] and 
+                df['MA5'].iloc[i] > df['MA10'].iloc[i]):
+                golden_crosses.append({
+                    'date': df['日期'].iloc[i],
+                    'price': df['收盘'].iloc[i],
+                    'type': 'MA5-MA10金叉'
+                })
+            
+            # 死叉：MA5从上方穿越MA10
+            elif (df['MA5'].iloc[i-1] >= df['MA10'].iloc[i-1] and 
+                  df['MA5'].iloc[i] < df['MA10'].iloc[i]):
+                death_crosses.append({
+                    'date': df['日期'].iloc[i],
+                    'price': df['收盘'].iloc[i],
+                    'type': 'MA5-MA10死叉'
+                })
+    
+    # 检测MA10和MA20的金叉死叉
+    if 'MA10' in df.columns and 'MA20' in df.columns:
+        for i in range(1, len(df)):
+            # 金叉：MA10从下方穿越MA20
+            if (df['MA10'].iloc[i-1] <= df['MA20'].iloc[i-1] and 
+                df['MA10'].iloc[i] > df['MA20'].iloc[i]):
+                golden_crosses.append({
+                    'date': df['日期'].iloc[i],
+                    'price': df['收盘'].iloc[i],
+                    'type': 'MA10-MA20金叉'
+                })
+            
+            # 死叉：MA10从上方穿越MA20
+            elif (df['MA10'].iloc[i-1] >= df['MA20'].iloc[i-1] and 
+                  df['MA10'].iloc[i] < df['MA20'].iloc[i]):
+                death_crosses.append({
+                    'date': df['日期'].iloc[i],
+                    'price': df['收盘'].iloc[i],
+                    'type': 'MA10-MA20死叉'
+                })
+    
+    return golden_crosses, death_crosses
+
+def detect_macd_cross_signals(df):
+    """检测MACD金叉和死叉信号"""
+    if df is None or df.empty or len(df) < 20:
+        return [], []
+    
+    golden_crosses = []
+    death_crosses = []
+    
+    # 检测MACD金叉死叉
+    if 'MACD' in df.columns and 'MACD_Signal' in df.columns:
+        for i in range(1, len(df)):
+            # 金叉：MACD从下方穿越MACD_Signal
+            if (df['MACD'].iloc[i-1] <= df['MACD_Signal'].iloc[i-1] and 
+                df['MACD'].iloc[i] > df['MACD_Signal'].iloc[i]):
+                golden_crosses.append({
+                    'date': df['日期'].iloc[i],
+                    'macd_value': df['MACD'].iloc[i],
+                    'type': 'MACD金叉'
+                })
+            
+            # 死叉：MACD从上方穿越MACD_Signal
+            elif (df['MACD'].iloc[i-1] >= df['MACD_Signal'].iloc[i-1] and 
+                  df['MACD'].iloc[i] < df['MACD_Signal'].iloc[i]):
+                death_crosses.append({
+                    'date': df['日期'].iloc[i],
+                    'macd_value': df['MACD'].iloc[i],
+                    'type': 'MACD死叉'
+                })
+    
+    return golden_crosses, death_crosses
+
+def create_price_chart(etf_name, df, signals):
+    """创建ETF价格走势图"""
+    if df is None or df.empty or len(df) < 20:
+        return None
+    
+    # 创建子图：价格图、MACD图和成交量图
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        subplot_titles=(f'{etf_name} 价格走势', 'MACD指标', '成交量'),
+        row_heights=[0.5, 0.25, 0.25]
+    )
+    
+    # 添加K线图
+    fig.add_trace(
+        go.Candlestick(
+            x=df['日期'],
+            open=df['开盘'],
+            high=df['最高'],
+            low=df['最低'],
+            close=df['收盘'],
+            name='K线',
+            increasing_line_color=COLOR_RULES['上涨'],  # 红色
+            decreasing_line_color=COLOR_RULES['下跌']   # 绿色
+        ),
+        row=1, col=1
+    )
+    
+    # 添加移动平均线
+    if 'MA5' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df['日期'],
+                y=df['MA5'],
+                name='MA5',
+                line=dict(color='#ff9800', width=2),
+                opacity=0.8
+            ),
+            row=1, col=1
+        )
+    
+    if 'MA10' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df['日期'],
+                y=df['MA10'],
+                name='MA10',
+                line=dict(color='#2196f3', width=2),
+                opacity=0.8
+            ),
+            row=1, col=1
+        )
+    
+    if 'MA20' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df['日期'],
+                y=df['MA20'],
+                name='MA20',
+                line=dict(color='#9c27b0', width=2),
+                opacity=0.8
+            ),
+            row=1, col=1
+        )
+    
+    # 检测MA金叉和死叉信号
+    ma_golden_crosses, ma_death_crosses = detect_ma_cross_signals(df)
+    
+    # 添加MA金叉标识（红色箭头）
+    if ma_golden_crosses:
+        golden_dates = [cross['date'] for cross in ma_golden_crosses]
+        golden_prices = [cross['price'] for cross in ma_golden_crosses]
+        golden_texts = [cross['type'] for cross in ma_golden_crosses]
+        
+        fig.add_trace(
+            go.Scatter(
+                x=golden_dates,
+                y=golden_prices,
+                mode='markers',
+                name='MA金叉',
+                marker=dict(
+                    symbol='arrow-up',
+                    size=15,
+                    color=COLOR_RULES['金叉'],
+                    line=dict(width=2, color='white')
+                ),
+                hovertemplate='<b>%{text}</b><br>日期: %{x}<br>价格: %{y:.3f}<extra></extra>',
+                customdata=golden_texts
+            ),
+            row=1, col=1
+        )
+    
+    # 添加MA死叉标识（绿色箭头）
+    if ma_death_crosses:
+        death_dates = [cross['date'] for cross in ma_death_crosses]
+        death_prices = [cross['price'] for cross in ma_death_crosses]
+        death_texts = [cross['type'] for cross in ma_death_crosses]
+        
+        fig.add_trace(
+            go.Scatter(
+                x=death_dates,
+                y=death_prices,
+                mode='markers',
+                name='MA死叉',
+                marker=dict(
+                    symbol='arrow-down',
+                    size=15,
+                    color=COLOR_RULES['死叉'],
+                    line=dict(width=2, color='white')
+                ),
+                hovertemplate='<b>%{text}</b><br>日期: %{x}<br>价格: %{y:.3f}<extra></extra>',
+                customdata=death_texts
+            ),
+            row=1, col=1
+        )
+    
+    # 添加MACD指标
+    if 'MACD' in df.columns and 'MACD_Signal' in df.columns:
+        # MACD线
+        fig.add_trace(
+            go.Scatter(
+                x=df['日期'],
+                y=df['MACD'],
+                name='MACD',
+                line=dict(color='#2196f3', width=2),
+                opacity=0.8
+            ),
+            row=2, col=1
+        )
+        
+        # MACD信号线
+        fig.add_trace(
+            go.Scatter(
+                x=df['日期'],
+                y=df['MACD_Signal'],
+                name='MACD信号线',
+                line=dict(color='#ff9800', width=2),
+                opacity=0.8
+            ),
+            row=2, col=1
+        )
+        
+        # 检测MACD金叉和死叉信号
+        macd_golden_crosses, macd_death_crosses = detect_macd_cross_signals(df)
+        
+        # 添加MACD金叉标识（红色箭头）
+        if macd_golden_crosses:
+            macd_golden_dates = [cross['date'] for cross in macd_golden_crosses]
+            macd_golden_values = [cross['macd_value'] for cross in macd_golden_crosses]
+            macd_golden_texts = [cross['type'] for cross in macd_golden_crosses]
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=macd_golden_dates,
+                    y=macd_golden_values,
+                    mode='markers',
+                    name='MACD金叉',
+                    marker=dict(
+                        symbol='arrow-up',
+                        size=12,
+                        color=COLOR_RULES['金叉'],
+                        line=dict(width=2, color='white')
+                    ),
+                    hovertemplate='<b>%{text}</b><br>日期: %{x}<br>MACD: %{y:.4f}<extra></extra>',
+                    customdata=macd_golden_texts
+                ),
+                row=2, col=1
+            )
+        
+        # 添加MACD死叉标识（绿色箭头）
+        if macd_death_crosses:
+            macd_death_dates = [cross['date'] for cross in macd_death_crosses]
+            macd_death_values = [cross['macd_value'] for cross in macd_death_crosses]
+            macd_death_texts = [cross['type'] for cross in macd_death_crosses]
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=macd_death_dates,
+                    y=macd_death_values,
+                    mode='markers',
+                    name='MACD死叉',
+                    marker=dict(
+                        symbol='arrow-down',
+                        size=12,
+                        color=COLOR_RULES['死叉'],
+                        line=dict(width=2, color='white')
+                    ),
+                    hovertemplate='<b>%{text}</b><br>日期: %{x}<br>MACD: %{y:.4f}<extra></extra>',
+                    customdata=macd_death_texts
+                ),
+                row=2, col=1
+            )
+        
+        # MACD柱状图
+        if 'MACD_Histogram' in df.columns:
+            colors = [COLOR_RULES['MACD正'] if val >= 0 else COLOR_RULES['MACD负'] for val in df['MACD_Histogram']]
+            fig.add_trace(
+                go.Bar(
+                    x=df['日期'],
+                    y=df['MACD_Histogram'],
+                    name='MACD柱状图',
+                    marker_color=colors,
+                    opacity=0.7
+                ),
+                row=2, col=1
+            )
+    
+    # 添加成交量柱状图
+    colors = [COLOR_RULES['上涨'] if close >= open else COLOR_RULES['下跌'] 
+              for close, open in zip(df['收盘'], df['开盘'])]
+    
+    fig.add_trace(
+        go.Bar(
+            x=df['日期'],
+            y=df['成交量'],
+            name='成交量',
+            marker_color=colors,
+            opacity=0.7
+        ),
+        row=3, col=1
+    )
+    
+    # 更新布局
+    fig.update_layout(
+        title=f'{etf_name} 技术分析图表',
+        xaxis_rangeslider_visible=False,
+        height=800,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    
+    # 更新x轴和y轴标签
+    fig.update_xaxes(title_text="日期", row=3, col=1)
+    fig.update_yaxes(title_text="价格", row=1, col=1)
+    fig.update_yaxes(title_text="MACD", row=2, col=1)
+    fig.update_yaxes(title_text="成交量", row=3, col=1)
+    
+    return fig
+
+@st.cache_data(ttl=86400)  # 缓存24小时
 def load_etf_data(symbol, days=100):
     """加载ETF历史数据"""
     try:
@@ -186,6 +527,30 @@ def analyze_etf_signals(df, symbol_name):
     
     signals['latest_golden_cross_days'] = find_latest_golden_cross(df)
     
+    # 计算近20日涨幅
+    if len(df) >= 20:
+        current_price = latest['收盘']
+        price_20_days_ago = df.iloc[-20]['收盘']
+        change_20_days = ((current_price - price_20_days_ago) / price_20_days_ago) * 100
+        signals['change_20_days'] = change_20_days
+    else:
+        signals['change_20_days'] = None
+    
+    # 成交量分析
+    current_volume = latest['成交量']
+    if len(df) >= 5:
+        volume_ma5 = df['成交量'].rolling(window=5).mean().iloc[-1]
+        volume_ratio = current_volume / volume_ma5 if volume_ma5 > 0 else 1
+        
+        if volume_ratio > 1.5:
+            signals['volume_status'] = "放量"
+        elif volume_ratio < 0.8:
+            signals['volume_status'] = "缩量"
+        else:
+            signals['volume_status'] = "正常"
+    else:
+        signals['volume_status'] = "正常"
+    
     # 计算综合评分
     score = 0
     if signals['price_above_ma5']: score += 1
@@ -203,116 +568,6 @@ def analyze_etf_signals(df, symbol_name):
     
     return signals
 
-def create_comparison_chart(etf_data_dict):
-    """创建对比图表"""
-    fig = go.Figure()
-    
-    colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown']
-    
-    for i, (symbol_name, df) in enumerate(etf_data_dict.items()):
-        if df is not None and not df.empty:
-            # 计算相对收益率（以第一个交易日为基准）
-            base_price = df['收盘'].iloc[0]
-            df['relative_return'] = (df['收盘'] / base_price - 1) * 100
-            
-            fig.add_trace(go.Scatter(
-                x=df['日期'],
-                y=df['relative_return'],
-                mode='lines',
-                name=symbol_name,
-                line=dict(color=colors[i % len(colors)], width=2)
-            ))
-    
-    fig.update_layout(
-        title="ETF相对收益率对比",
-        xaxis_title="日期",
-        yaxis_title="相对收益率 (%)",
-        height=500,
-        hovermode='x unified'
-    )
-    
-    return fig
-
-def create_heatmap_chart(signals_list):
-    """创建信号热力图"""
-    if not signals_list:
-        return None
-    
-    # 准备热力图数据
-    symbols = [s['symbol'] for s in signals_list]
-    indicators = ['价格>MA5', '价格>MA10', '价格>MA20', '多头排列', 'MA5金叉MA10', 'MA10金叉MA20', 'MACD金叉', 'MACD>0', 'RSI超卖', 'RSI超买']
-    
-    heatmap_data = []
-    for signals in signals_list:
-        row = [
-            signals['price_above_ma5'],
-            signals['price_above_ma10'],
-            signals['price_above_ma20'],
-            signals['bullish_alignment'],
-            signals['ma5_ma10_golden_cross'],
-            signals['ma10_ma20_golden_cross'],
-            signals['macd_golden_cross'],
-            signals['macd_above_zero'],
-            signals['rsi_oversold'],
-            signals['rsi_overbought']
-        ]
-        heatmap_data.append(row)
-    
-    fig = go.Figure(data=go.Heatmap(
-        z=heatmap_data,
-        x=indicators,
-        y=symbols,
-        colorscale='RdYlGn',
-        showscale=True,
-        hoverongaps=False
-    ))
-    
-    fig.update_layout(
-        title="ETF技术信号热力图",
-        height=400,
-        xaxis_title="技术指标",
-        yaxis_title="ETF标的"
-    )
-    
-    return fig
-
-def create_score_ranking(signals_list):
-    """创建评分排名图表"""
-    if not signals_list:
-        return None
-    
-    # 按评分排序
-    sorted_signals = sorted(signals_list, key=lambda x: x['total_score'], reverse=True)
-    
-    symbols = [s['symbol'] for s in sorted_signals]
-    scores = [s['total_score'] for s in sorted_signals]
-    
-    # 根据评分设置颜色
-    colors = []
-    for score in scores:
-        if score >= 8:
-            colors.append('green')
-        elif score >= 5:
-            colors.append('orange')
-        else:
-            colors.append('red')
-    
-    fig = go.Figure(data=go.Bar(
-        x=symbols,
-        y=scores,
-        marker_color=colors,
-        text=scores,
-        textposition='auto'
-    ))
-    
-    fig.update_layout(
-        title="ETF技术分析综合评分排名",
-        xaxis_title="ETF标的",
-        yaxis_title="综合评分",
-        height=400
-    )
-    
-    return fig
 
 def main():
     # 主标题
@@ -395,20 +650,6 @@ def main():
     
     st.success(f"成功加载 {len(etf_data_dict)} 个ETF的数据")
     
-    # 显示调试信息
-    with st.expander("🔍 调试信息", expanded=False):
-        st.write(f"选择的ETF数量: {len(selected_etfs)}")
-        st.write(f"选择的ETF: {selected_etfs}")
-        st.write(f"成功加载的ETF: {list(etf_data_dict.keys())}")
-        st.write(f"信号数据数量: {len(signals_list)}")
-        st.write(f"失败的ETF: {failed_etfs}")
-        st.write(f"已加载的ETF代码: {list(loaded_symbols)}")
-        if signals_list:
-            st.write("信号数据示例:")
-            st.json(signals_list[0])
-            st.write("所有信号数据的symbol:")
-            for i, s in enumerate(signals_list):
-                st.write(f"{i+1}. {s.get('symbol', '未知')}")
     
     # 显示对比结果
     st.subheader("📊 对比分析结果")
@@ -417,27 +658,40 @@ def main():
     comparison_data = []
     processed_symbols = set()  # 用于跟踪已处理的ETF
     
-    for signals in signals_list:
-        # 确保信号数据完整
-        if signals is None or not signals or 'symbol' not in signals:
+    # 处理已加载的ETF数据
+    for etf_name, df in etf_data_dict.items():
+        if etf_name not in ETF_CONFIG:
             continue
             
+        symbol = ETF_CONFIG[etf_name]
+        
         # 检查是否已经处理过这个ETF
-        symbol = signals['symbol']
         if symbol in processed_symbols:
-            st.warning(f"跳过重复的ETF: {symbol}")
             continue
         processed_symbols.add(symbol)
+        
+        # 查找对应的信号数据
+        signals = None
+        for s in signals_list:
+            if s and s.get('symbol') == etf_name:
+                signals = s
+                break
+        
+        # 确保信号数据完整
+        if signals is None or not signals:
+            continue
             
         # 验证必要字段
         required_fields = ['current_price', 'change_pct', 'ma5_value', 'ma10_value', 'ma20_value', 
                           'price_above_ma5', 'price_above_ma10', 'price_above_ma20', 'bullish_alignment',
                           'ma5_ma10_golden_cross', 'ma5_ma10_death_cross', 'ma10_ma20_golden_cross', 'ma10_ma20_death_cross',
                           'macd_golden_cross', 'macd_death_cross', 'macd_above_zero', 'macd_value', 'macd_signal_value',
-                          'rsi', 'rsi_oversold', 'rsi_overbought', 'volume', 'turnover', 'latest_golden_cross_days', 'total_score']
+                          'rsi', 'rsi_oversold', 'rsi_overbought', 'volume_status', 'turnover', 'latest_golden_cross_days', 
+                          'change_20_days', 'total_score']
         
-        if not all(field in signals for field in required_fields):
-            st.warning(f"跳过 {symbol} - 数据不完整")
+        missing_fields = [field for field in required_fields if field not in signals]
+        if missing_fields:
+            st.warning(f"跳过 {etf_name} - 缺少字段: {missing_fields}")
             continue
         
         # 均线分析状态 - 使用emoji图标
@@ -540,10 +794,19 @@ def main():
         else:
             cross_days_display = "无金叉"
         
+        # 近20日涨幅显示
+        change_20_days = signals.get('change_20_days')
+        if change_20_days is not None:
+            change_20_days_display = f"{change_20_days:.2f}%"
+        else:
+            change_20_days_display = "N/A"
+        
         comparison_data.append({
-            'ETF标的': signals['symbol'],
+            '综合评分': signals['total_score'],
+            'ETF标的': etf_name,
             '当前价格': f"{signals['current_price']:.3f}",
             '涨跌幅(%)': f"{signals['change_pct']:.2f}",
+            '近20日涨幅(%)': change_20_days_display,
             'MA5': f"{signals['ma5_value']:.3f}",
             'MA10': f"{signals['ma10_value']:.3f}",
             'MA20': f"{signals['ma20_value']:.3f}",
@@ -556,31 +819,44 @@ def main():
             'RSI': f"{signals['rsi']:.1f}",
             'RSI状态': rsi_status,
             '最近金叉': cross_days_display,
-            '成交量': f"{signals['volume']:,}",
+            '成交量状态': signals['volume_status'],
             '换手率(%)': f"{signals['turnover']:.2f}",
-            '投资建议': f"{advice_emoji} {investment_advice}",
-            '综合评分': signals['total_score']
+            '投资建议': f"{advice_emoji} {investment_advice}"
         })
     
-    comparison_df = pd.DataFrame(comparison_data)
-    comparison_df = comparison_df.sort_values('综合评分', ascending=False)
+    # 验证数据
+    if len(comparison_data) == 0:
+        st.error("没有有效数据，请检查网络连接或数据源")
+        st.write(f"调试信息:")
+        st.write(f"- 已加载的ETF数量: {len(etf_data_dict)}")
+        st.write(f"- 信号数据数量: {len(signals_list)}")
+        st.write(f"- 已加载的ETF: {list(etf_data_dict.keys())}")
+        st.write(f"- 信号数据的symbol: {[s.get('symbol') for s in signals_list if s]}")
+        return
     
-    # 添加表格创建后的调试信息
-    with st.expander("🔍 表格调试信息", expanded=False):
-        st.write(f"表格数据行数: {len(comparison_df)}")
-        st.write(f"已处理的ETF数量: {len(processed_symbols)}")
-        st.write(f"已处理的ETF: {list(processed_symbols)}")
-        if len(comparison_df) > 0:
-            st.write("表格中的ETF:")
-            for i, row in comparison_df.iterrows():
-                st.write(f"{i+1}. {row['ETF标的']}")
+    # 确保只有6行数据
+    if len(comparison_data) > 6:
+        comparison_data = comparison_data[:6]
+    
+    comparison_df = pd.DataFrame(comparison_data)
+    
+    # 检查DataFrame是否为空
+    if comparison_df.empty:
+        st.error("没有有效数据，请检查网络连接或数据源")
+        return
+    
+    # 按综合评分排序
+    if '综合评分' in comparison_df.columns:
+        try:
+            comparison_df = comparison_df.sort_values('综合评分', ascending=False)
+        except Exception as e:
+            st.warning(f"按综合评分排序失败: {e}")
+    else:
+        st.warning("缺少'综合评分'列，无法排序")
     
     # 验证表格行数
-    if len(comparison_df) != 6:
-        st.warning(f"⚠️ 表格行数异常: 期望6行，实际{len(comparison_df)}行")
-        if len(comparison_df) == 0:
-            st.error("没有有效数据，请检查网络连接或数据源")
-            return
+    if len(comparison_df) < 6:
+        st.warning(f"⚠️ 数据不完整: 只有{len(comparison_df)}个ETF的数据，期望6个")
     
     # 美化表格显示
     st.markdown("""
@@ -627,9 +903,11 @@ def main():
             <table class="comparison-table" style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif;">
                 <thead>
                     <tr style="background-color: #1f77b4; color: white;">
+                        <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">综合评分</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">ETF标的</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">当前价格</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">涨跌幅(%)</th>
+                        <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">近20日涨幅(%)</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">MA5</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">MA10</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">MA20</th>
@@ -642,10 +920,9 @@ def main():
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">RSI</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">RSI状态</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">最近金叉</th>
-                        <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">成交量</th>
+                        <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">成交量状态</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">换手率(%)</th>
                         <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">投资建议</th>
-                        <th style="padding: 12px 8px; border: 1px solid #ddd; text-align: center;">综合评分</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -665,13 +942,29 @@ def main():
             try:
                 change_pct = float(row['涨跌幅(%)'])
                 if change_pct < 0:
-                    change_color = "red"
+                    change_color = COLOR_RULES['下跌']  # 绿色
                 elif change_pct > 0:
-                    change_color = "green"
+                    change_color = COLOR_RULES['上涨']  # 红色
                 else:
                     change_color = "black"
             except:
                 change_color = "black"
+            
+            # 安全处理近20日涨幅颜色
+            try:
+                change_20_days_str = str(row['近20日涨幅(%)']).replace('%', '')
+                if change_20_days_str == 'N/A':
+                    change_20_days_color = "gray"
+                else:
+                    change_20_days = float(change_20_days_str)
+                    if change_20_days < 0:
+                        change_20_days_color = COLOR_RULES['下跌']  # 绿色
+                    elif change_20_days > 0:
+                        change_20_days_color = COLOR_RULES['上涨']  # 红色
+                    else:
+                        change_20_days_color = "black"
+            except:
+                change_20_days_color = "gray"
             
             # 安全处理综合评分颜色
             try:
@@ -686,9 +979,11 @@ def main():
             
             html += f"""
                     <tr style="{row_style}">
+                        <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; font-weight: bold; font-size: 16px; color: {score_color};">{str(row['综合评分'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{str(row['ETF标的'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center;">{str(row['当前价格'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; color: {change_color};">{str(row['涨跌幅(%)'])}</td>
+                        <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; color: {change_20_days_color}; font-weight: bold; font-size: 14px;">{str(row['近20日涨幅(%)'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center;">{str(row['MA5'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center;">{str(row['MA10'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center;">{str(row['MA20'])}</td>
@@ -701,10 +996,9 @@ def main():
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center;">{str(row['RSI'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; font-size: 12px;">{str(row['RSI状态'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{str(row['最近金叉'])}</td>
-                        <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center;">{str(row['成交量'])}</td>
+                        <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{str(row['成交量状态'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center;">{str(row['换手率(%)'])}</td>
                         <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; font-size: 12px; font-weight: bold;">{str(row['投资建议'])}</td>
-                        <td style="padding: 10px 8px; border: 1px solid #ddd; text-align: center; font-weight: bold; font-size: 16px; color: {score_color};">{str(row['综合评分'])}</td>
                     </tr>
             """
         
@@ -742,22 +1036,94 @@ def main():
         height=400
     )
     
-    # 添加表格说明
-    st.markdown("""
-    <div style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border-radius: 5px; border-left: 4px solid #1f77b4;">
-        <h4 style="margin: 0 0 10px 0; color: #1f77b4;">📋 表格说明</h4>
-        <ul style="margin: 0; padding-left: 20px;">
-            <li><strong>均线状态</strong>: ✅表示价格在均线之上，❌表示价格在均线之下</li>
-            <li><strong>金叉死叉</strong>: 🟢表示金叉，🔴表示死叉，⚪表示无交叉</li>
-            <li><strong>多头排列</strong>: ✅表示MA5>MA10>MA20，❌表示非多头排列</li>
-            <li><strong>MACD状态</strong>: 🟢表示金叉，🔴表示死叉，⚪表示无交叉；✅表示MACD>0，❌表示MACD<0</li>
-            <li><strong>RSI状态</strong>: 🟢表示超卖(<30)，🔴表示超买(>70)，⚪表示中性(30-70)</li>
-            <li><strong>最近金叉</strong>: 显示最近一次金叉信号距离今天的天数，包括MA5-MA10、MA10-MA20、MACD金叉</li>
-            <li><strong>投资建议</strong>: 基于技术指标的综合投资建议，🚀强烈建议买入，📈建议买入，💡可考虑买入，👀观望，⏸️暂不建议</li>
-            <li><strong>综合评分</strong>: 基于所有技术指标的综合评分，分数越高表示技术面越强</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+    # 添加表格说明（默认折叠）
+    with st.expander("📋 表格说明", expanded=False):
+        st.markdown("### 📊 列说明")
+        
+        st.markdown("#### 基础信息")
+        st.markdown("""
+        - **ETF标的**: 基金名称和代码
+        - **当前价格**: 最新收盘价
+        - **涨跌幅(%)**: 当日涨跌百分比，红色为上涨，绿色为下跌
+        - **近20日涨幅(%)**: 20个交易日累计涨跌幅，红色为上涨，绿色为下跌
+        """)
+        
+        st.markdown("#### 技术指标")
+        st.markdown("""
+        - **MA5/MA10/MA20**: 5日、10日、20日移动平均线
+        - **均线状态**: ✅表示价格在均线之上，❌表示价格在均线之下
+        - **金叉死叉**: 🟢表示金叉，🔴表示死叉，⚪表示无交叉
+        - **多头排列**: ✅表示MA5>MA10>MA20，❌表示非多头排列
+        - **MACD**: MACD指标值
+        - **MACD信号**: MACD信号线值
+        - **MACD状态**: 🟢表示金叉，🔴表示死叉，⚪表示无交叉；✅表示MACD>0，❌表示MACD<0
+        - **RSI**: 相对强弱指数
+        - **RSI状态**: 🟢表示超卖(<30)，🔴表示超买(>70)，⚪表示中性(30-70)
+        """)
+        
+        st.markdown("#### 交易信息")
+        st.markdown("""
+        - **最近金叉**: 最近一次金叉信号距离今天的天数，包括MA5-MA10、MA10-MA20、MACD金叉
+        - **成交量状态**: **放量**表示成交量放大，**缩量**表示成交量缩小，**正常**表示成交量正常
+        - **换手率(%)**: 当日换手率
+        """)
+        
+        st.markdown("#### 投资建议")
+        st.markdown("""
+        - **投资建议**: 基于技术指标的综合投资建议
+          - 🚀 **强烈建议买入**: 多个指标同时发出买入信号
+          - 📈 **建议买入**: 主要指标偏向买入
+          - 💡 **可考虑买入**: 部分指标支持买入
+          - 👀 **观望**: 指标信号不明确
+          - ⏸️ **暂不建议**: 指标偏向卖出或谨慎
+        - **综合评分**: 基于所有技术指标的综合评分(0-10分)，分数越高表示技术面越强
+        """)
+        
+        st.markdown("#### 颜色规则")
+        st.markdown("""
+        - **上涨/金叉**: 红色 🔴
+        - **下跌/死叉**: 绿色 🟢
+        - **K线图**: 红色表示上涨，绿色表示下跌
+        - **金叉死叉**: 红色向上箭头表示金叉，绿色向下箭头表示死叉
+        - **MACD柱状图**: 红色表示正值，绿色表示负值
+        - **成交量**: 红色表示上涨日，绿色表示下跌日
+        """)
+        
+        st.info("💡 **使用提示**: 建议结合价格走势图和技术指标进行综合分析，单一指标仅供参考。")
+    
+    # 显示价格走势图
+    st.subheader("📈 价格走势图")
+    
+    # 为每个ETF创建价格走势图
+    for etf_name, df in etf_data_dict.items():
+        if df is None or df.empty or len(df) < 20:
+            continue
+            
+        # 查找对应的信号数据
+        signals = None
+        for s in signals_list:
+            if s and s.get('symbol') == etf_name:
+                signals = s
+                break
+        
+        if signals is None:
+            continue
+            
+        # 创建价格走势图
+        chart = create_price_chart(etf_name, df, signals)
+        if chart:
+            st.plotly_chart(chart, use_container_width=True)
+            
+            # 添加技术指标说明
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("当前价格", f"{signals['current_price']:.3f}")
+            with col2:
+                st.metric("涨跌幅", f"{signals['change_pct']:.2f}%")
+            with col3:
+                st.metric("综合评分", f"{signals['total_score']:.1f}")
+            
+            st.markdown("---")
     
     # 显示详细信号分析
     st.subheader("🔍 详细信号分析")
@@ -789,27 +1155,6 @@ def main():
                 st.write(f"RSI超卖: {'✅' if signals['rsi_oversold'] else '❌'}")
                 st.write(f"RSI超买: {'✅' if signals['rsi_overbought'] else '❌'}")
     
-    # 显示图表
-    st.subheader("📈 对比图表")
-    
-    # 相对收益率对比
-    comparison_chart = create_comparison_chart(etf_data_dict)
-    if comparison_chart:
-        st.plotly_chart(comparison_chart, use_container_width=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # 信号热力图
-        heatmap_chart = create_heatmap_chart(signals_list)
-        if heatmap_chart:
-            st.plotly_chart(heatmap_chart, use_container_width=True)
-    
-    with col2:
-        # 评分排名
-        score_chart = create_score_ranking(signals_list)
-        if score_chart:
-            st.plotly_chart(score_chart, use_container_width=True)
     
     # 数据下载
     st.subheader("💾 数据下载")

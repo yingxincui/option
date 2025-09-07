@@ -52,16 +52,6 @@ def load_risk_indicator_data(date):
     try:
         with st.spinner(f"正在加载 {date} 的风险指标数据..."):
             df = ak.option_risk_indicator_sse(date=date)
-            # 添加调试信息
-            if df is not None and not df.empty:
-                st.success(f"成功加载 {len(df)} 条风险指标数据")
-                # 检查列名
-                expected_columns = ['TRADE_DATE', 'SECURITY_ID', 'CONTRACT_ID', 'CONTRACT_SYMBOL', 
-                                  'DELTA_VALUE', 'THETA_VALUE', 'GAMMA_VALUE', 'VEGA_VALUE', 
-                                  'RHO_VALUE', 'IMPLC_VOLATLTY']
-                actual_columns = list(df.columns)
-                if actual_columns != expected_columns:
-                    st.warning(f"列名不匹配！期望: {expected_columns}, 实际: {actual_columns}")
             return df
     except Exception as e:
         st.error(f"风险指标数据加载失败: {str(e)}")
