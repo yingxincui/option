@@ -55,7 +55,7 @@ ETF_CONFIG = {
     "深证100ETF (159901)": "159901"
 }
 
-@st.cache_data(ttl=86400)  # 缓存24小时
+@st.cache_data(ttl=3600)  # 缓存1小时
 def load_etf_data(symbol, period="daily", days=250):
     """加载ETF历史数据"""
     try:
@@ -1630,8 +1630,15 @@ def main():
     )
     
     # 刷新按钮
-    if st.sidebar.button("🔄 刷新分析", type="primary"):
-        st.rerun()
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("🔄 刷新分析", type="primary"):
+            st.rerun()
+    with col2:
+        if st.button("🗑️ 清除缓存"):
+            st.cache_data.clear()
+            st.success("缓存已清除！")
+            st.rerun()
     
     # 加载数据
     etf_symbol = ETF_CONFIG[selected_etf]
