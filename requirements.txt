@@ -1,5 +1,18 @@
+# 核心框架
 streamlit>=1.28.0
-akshare>=1.12.0
+
+# 数据处理
 pandas>=1.5.0
-plotly>=5.15.0
 numpy>=1.24.0
+
+# 数据源
+akshare>=1.12.0
+
+# 图表可视化
+plotly>=5.15.0
+
+# 复制到剪贴板功能
+st-copy-to-clipboard>=0.1.0
+
+# 日期时间处理
+python-dateutil>=2.8.0
