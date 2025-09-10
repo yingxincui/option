@@ -139,6 +139,7 @@ def main():
             <a href="/etf技术分析" class="nav-button">📈 ETF技术分析</a>
             <a href="/etf对比分析" class="nav-button">📊 ETF对比分析</a>
             <a href="/期权基础知识" class="nav-button">📚 期权基础知识</a>
+            <a href="/期权风险分析" class="nav-button">📊 期权合约分析</a>
         </div>
     </div>
     """, unsafe_allow_html=True)
