@@ -856,14 +856,54 @@ def display_comprehensive_analysis(df, signals, symbol_name):
         st.write(f"风险等级: {risk_level}")
     
     with col2:
-        st.markdown("**📊 期权建议**")
-        st.write(option_advice)
-        if score_percentage >= 60:
-            st.write("• 建议选择实值或平值期权")
-            st.write("• 注意时间价值损耗")
-        elif score_percentage <= 40:
-            st.write("• 建议选择看跌期权")
-            st.write("• 注意波动率风险")
+        st.markdown("**📊 期权建议（基于共振评分 0-8）**")
+
+        # 共振评分映射到策略矩阵
+        def map_strategy_by_resonance(score_0_8: int):
+            if score_0_8 >= 6:
+                return {
+                    "评分区间": "6-8（强共振看多）",
+                    "市场预期": "强烈看涨，预期大涨",
+                    "推荐策略": "买入看涨期权 (Long Call)",
+                    "核心逻辑": "最直接、潜在收益无限的做多策略。"
+                }
+            elif score_0_8 >= 4:
+                return {
+                    "评分区间": "4-5（中度共振看多）",
+                    "市场预期": "温和看涨，预期缓涨",
+                    "推荐策略": "牛市看涨价差 (Bull Call Spread)",
+                    "核心逻辑": "降低成本，适合温和上涨行情，收益风险均有限。"
+                }
+            elif score_0_8 >= 2:
+                return {
+                    "评分区间": "2-3（弱共振看多）",
+                    "市场预期": "中性略偏多，或震荡略偏强",
+                    "推荐策略": "卖出看跌期权 (Sell Put)",
+                    "核心逻辑": "赚取权利金，或愿意以行权价买入标的。"
+                }
+            else:
+                return {
+                    "评分区间": "0-1（无共振/偏空）",
+                    "市场预期": "方向不明或略微偏空",
+                    "推荐策略": "观望 或 中性策略（如卖跨式）",
+                    "核心逻辑": "避免方向性交易。"
+                }
+
+        matrix_rows = [
+            {"评分区间": "6-8（强共振看多）", "市场预期": "强烈看涨，预期大涨", "推荐策略": "买入看涨期权 (Long Call)", "核心逻辑": "最直接、潜在收益无限的做多策略。"},
+            {"评分区间": "4-5（中度共振看多）", "市场预期": "温和看涨，预期缓涨", "推荐策略": "牛市看涨价差 (Bull Call Spread)", "核心逻辑": "降低成本，适合温和上涨行情，收益风险均有限。"},
+            {"评分区间": "2-3（弱共振看多）", "市场预期": "中性略偏多，或震荡略偏强", "推荐策略": "卖出看跌期权 (Sell Put)", "核心逻辑": "赚取权利金，或愿意以行权价买入标的。"},
+            {"评分区间": "0-1（无共振/偏空）", "市场预期": "方向不明或略微偏空", "推荐策略": "观望 或 中性策略（如卖跨式）", "核心逻辑": "避免方向性交易。"},
+        ]
+        st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
+
+        # 当前得分对应的首要建议
+        current_advice = map_strategy_by_resonance(int(resonance_score))
+        st.markdown("**当前共振评分对应建议：**")
+        st.markdown(f"- 评分区间：{current_advice['评分区间']}")
+        st.markdown(f"- 市场预期：{current_advice['市场预期']}")
+        st.markdown(f"- 推荐期权策略：{current_advice['推荐策略']}")
+        st.markdown(f"- 策略核心逻辑：{current_advice['核心逻辑']}")
     
     with col3:
         st.markdown("**📈 ETF现货建议**")
