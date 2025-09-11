@@ -94,6 +94,8 @@ st.markdown("""
 def main():
     # 主标题
     st.markdown('<h1 class="main-header">📊 金融数据分析平台</h1>', unsafe_allow_html=True)
+    # 首次进入首页时，提示并提供直达 ETF 技术分析
+    st.info("默认推荐进入 ETF 技术分析（已将创业板ETF设为默认）。您也可使用下方导航进入其他页面。")
     
     # 欢迎卡片
     st.markdown("""
@@ -112,7 +114,7 @@ def main():
     st.markdown("""
     <div class="stats-container">
         <div class="stat-item">
-            <div class="stat-number">4</div>
+            <div class="stat-number">6</div>
             <div class="stat-label">分析模块</div>
         </div>
         <div class="stat-item">
@@ -136,10 +138,15 @@ def main():
         <h2 style="color: #333; margin-bottom: 2rem;">🔗 快速导航</h2>
         <div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 1rem;">
             <a href="/每日统计" class="nav-button">📊 每日统计</a>
+            <a href="/etf技术分析" class="nav-button">📈 ETF技术分析（默认创业板）</a>
             <a href="/etf技术分析" class="nav-button">📈 ETF技术分析</a>
             <a href="/etf对比分析" class="nav-button">📊 ETF对比分析</a>
             <a href="/期权基础知识" class="nav-button">📚 期权基础知识</a>
             <a href="/期权风险分析" class="nav-button">📊 期权合约分析</a>
+            <a href="/保险策略" class="nav-button">🛡️ 期权保险策略</a>
+            <a href="/价差策略" class="nav-button">📈 期权价差策略</a>
+            <a href="/创业板期权波动率指数_QVIX" class="nav-button">📈 创业板QVIX</a>
+            <a href="/波动率概览" class="nav-button">🌐 波动率概览</a>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -188,6 +195,26 @@ def main():
             <p>• 交易策略介绍</p>
             <p>• 希腊字母分析</p>
             <p>• 风险管理指南</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="feature-card">
+            <h3>🛡️ 期权保险策略</h3>
+            <p>• 保护性看跌期权</p>
+            <p>• 备兑看涨期权</p>
+            <p>• 领子策略分析</p>
+            <p>• 策略对比与选择</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="feature-card">
+            <h3>📈 期权价差策略</h3>
+            <p>• 牛市看涨价差</p>
+            <p>• 熊市看跌价差</p>
+            <p>• 铁鹰、蝶式等组合</p>
+            <p>• 收益结构与风险控制</p>
         </div>
         """, unsafe_allow_html=True)
     

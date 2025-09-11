@@ -1597,11 +1597,15 @@ def main():
     # 侧边栏配置
     st.sidebar.header("⚙️ 分析配置")
     
-    # ETF选择
+    # ETF选择（默认创业板ETF 159915）
+    etf_options = list(ETF_CONFIG.keys())
+    default_etf_label = "创业板ETF (159915)"
+    default_index = etf_options.index(default_etf_label) if default_etf_label in etf_options else 0
     selected_etf = st.sidebar.selectbox(
         "选择ETF标的",
-        options=list(ETF_CONFIG.keys()),
-        index=0
+        options=etf_options,
+        index=default_index,
+        key="etf_select_main"
     )
     
     # 添加快速选择按钮
