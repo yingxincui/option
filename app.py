@@ -114,7 +114,7 @@ def main():
     st.markdown("""
     <div class="stats-container">
         <div class="stat-item">
-            <div class="stat-number">6</div>
+            <div class="stat-number">8</div>
             <div class="stat-label">分析模块</div>
         </div>
         <div class="stat-item">
@@ -147,6 +147,8 @@ def main():
             <a href="/价差策略" class="nav-button">📈 期权价差策略</a>
             <a href="/创业板期权波动率指数_QVIX" class="nav-button">📈 创业板QVIX</a>
             <a href="/波动率概览" class="nav-button">🌐 波动率概览</a>
+            <a href="/期权交易心法精要" class="nav-button">🧠 期权交易心法</a>
+            <a href="/期权策略决策系统" class="nav-button">🧭 期权策略决策</a>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -215,6 +217,26 @@ def main():
             <p>• 熊市看跌价差</p>
             <p>• 铁鹰、蝶式等组合</p>
             <p>• 收益结构与风险控制</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="feature-card">
+            <h3>🧠 期权交易心法</h3>
+            <p>• 心态修炼与纪律</p>
+            <p>• 组合策略与应对</p>
+            <p>• 时机与移仓技巧</p>
+            <p>• 交易哲学总结</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="feature-card">
+            <h3>🧭 期权策略决策</h3>
+            <p>• 日线多因子共振</p>
+            <p>• 趋势/动能/位置/能量</p>
+            <p>• 策略自动映射</p>
+            <p>• 风险提示与增强</p>
         </div>
         """, unsafe_allow_html=True)
     

@@ -57,32 +57,13 @@ ETF_CONFIG = {
 
 @st.cache_data(ttl=3600)  # 缓存1小时
 def load_etf_data(symbol, period="daily", days=250):
-    """加载ETF历史数据"""
-    try:
-        end_date = datetime.now().strftime("%Y%m%d")
-        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-        
-        with st.spinner(f"正在加载 {symbol} 的历史数据..."):
-            df = ak.fund_etf_hist_em(
-                symbol=symbol, 
-                period=period, 
-                start_date=start_date, 
-                end_date=end_date, 
-                adjust="qfq"  # 前复权
-            )
-            
-        if df is not None and not df.empty:
-            # 转换日期格式
-            df['日期'] = pd.to_datetime(df['日期'])
-            df = df.sort_values('日期').reset_index(drop=True)
-            st.success(f"成功加载 {len(df)} 条历史数据")
-            return df
-        else:
-            st.error("数据加载失败")
-            return None
-    except Exception as e:
-        st.error(f"数据加载失败: {str(e)}")
-        return None
+	"""加载ETF历史数据（使用共享模块，含东财→新浪回退）"""
+	try:
+		from utils.etf_analysis_shared import load_etf_data as _shared_loader
+		return _shared_loader(symbol, period, days)
+	except Exception as e:
+		st.error(f"数据加载失败: {str(e)}")
+		return None
 
 def calculate_technical_indicators(df):
     """计算技术指标"""
@@ -856,7 +837,7 @@ def display_comprehensive_analysis(df, signals, symbol_name):
         st.write(f"风险等级: {risk_level}")
     
     with col2:
-        st.markdown("**📊 期权建议（基于共振评分 0-8）**")
+        st.markdown("**📊 当前期权建议**")
 
         # 共振评分映射到策略矩阵
         def map_strategy_by_resonance(score_0_8: int):
@@ -888,14 +869,6 @@ def display_comprehensive_analysis(df, signals, symbol_name):
                     "推荐策略": "观望 或 中性策略（如卖跨式）",
                     "核心逻辑": "避免方向性交易。"
                 }
-
-        matrix_rows = [
-            {"评分区间": "6-8（强共振看多）", "市场预期": "强烈看涨，预期大涨", "推荐策略": "买入看涨期权 (Long Call)", "核心逻辑": "最直接、潜在收益无限的做多策略。"},
-            {"评分区间": "4-5（中度共振看多）", "市场预期": "温和看涨，预期缓涨", "推荐策略": "牛市看涨价差 (Bull Call Spread)", "核心逻辑": "降低成本，适合温和上涨行情，收益风险均有限。"},
-            {"评分区间": "2-3（弱共振看多）", "市场预期": "中性略偏多，或震荡略偏强", "推荐策略": "卖出看跌期权 (Sell Put)", "核心逻辑": "赚取权利金，或愿意以行权价买入标的。"},
-            {"评分区间": "0-1（无共振/偏空）", "市场预期": "方向不明或略微偏空", "推荐策略": "观望 或 中性策略（如卖跨式）", "核心逻辑": "避免方向性交易。"},
-        ]
-        st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
 
         # 当前得分对应的首要建议
         current_advice = map_strategy_by_resonance(int(resonance_score))
@@ -1633,37 +1606,48 @@ def display_volume_chart_conclusion(df, signals, symbol_name):
 def main():
     # 主标题
     st.markdown('<h1 class="main-header">📈 ETF技术分析</h1>', unsafe_allow_html=True)
-    
-    # 侧边栏配置
-    st.sidebar.header("⚙️ 分析配置")
-    
-    # ETF选择（默认创业板ETF 159915）
+
+    # —— 平铺选择：主页面网格选择 ETF 标的 ——
     etf_options = list(ETF_CONFIG.keys())
     default_etf_label = "创业板ETF (159915)"
-    default_index = etf_options.index(default_etf_label) if default_etf_label in etf_options else 0
+    if "etf_selected_label" not in st.session_state:
+        st.session_state["etf_selected_label"] = default_etf_label if default_etf_label in etf_options else etf_options[0]
+
+    st.markdown("### 选择ETF标的（平铺）")
+    grid_cols = 3
+    cols = st.columns(grid_cols)
+    for i, label in enumerate(etf_options):
+        col = cols[i % grid_cols]
+        with col:
+            is_selected = (label == st.session_state["etf_selected_label"])
+            btn_label = ("✅ " if is_selected else "") + label
+            if st.button(btn_label, key=f"etf_grid_btn_{i}"):
+                st.session_state["etf_selected_label"] = label
+    st.markdown(f"当前选择：**{st.session_state['etf_selected_label']}**")
+
+    # 侧边栏配置
+    st.sidebar.header("⚙️ 分析配置")
+
+    # 侧边栏下拉与平铺同步
+    etf_options = list(ETF_CONFIG.keys())
+    default_index = etf_options.index(st.session_state["etf_selected_label"]) if st.session_state["etf_selected_label"] in etf_options else 0
     selected_etf = st.sidebar.selectbox(
         "选择ETF标的",
         options=etf_options,
         index=default_index,
         key="etf_select_main"
     )
-    
-    # 添加快速选择按钮
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        if st.button("选择科创50ETF"):
-            selected_etf = "科创50ETF (588000)"
-    with col2:
-        if st.button("选择沪深300ETF"):
-            selected_etf = "沪深300ETF (510300)"
-    
+    # 同步回 session_state
+    if selected_etf != st.session_state["etf_selected_label"]:
+        st.session_state["etf_selected_label"] = selected_etf
+
     # 分析周期
     period = st.sidebar.selectbox(
         "分析周期",
         options=["daily", "weekly", "monthly"],
         index=0
     )
-    
+
     # 历史数据天数
     days = st.sidebar.slider(
         "历史数据天数",
@@ -1672,8 +1656,8 @@ def main():
         value=250,
         step=10
     )
-    
-    # 刷新按钮
+
+    # 刷新与清缓存
     col1, col2 = st.sidebar.columns(2)
     with col1:
         if st.button("🔄 刷新分析", type="primary"):
@@ -1683,11 +1667,11 @@ def main():
             st.cache_data.clear()
             st.success("缓存已清除！")
             st.rerun()
-    
+
     # 加载数据
-    etf_symbol = ETF_CONFIG[selected_etf]
+    etf_symbol = ETF_CONFIG[st.session_state["etf_selected_label"]]
     df = load_etf_data(etf_symbol, period, days)
-    
+
     if df is not None and not df.empty:
         # 计算技术指标
         df = calculate_technical_indicators(df)
@@ -1697,39 +1681,39 @@ def main():
         
         
         # 显示融合的综合技术分析和总体结论
-        display_comprehensive_analysis(df, signals, selected_etf)
+        display_comprehensive_analysis(df, signals, st.session_state["etf_selected_label"])
         
         # 显示图表
         st.subheader("📈 技术分析图表")
         
         # 四象限技术分析图表
         # 1. 趋势型指标图表（价格+均线+MACD）
-        trend_chart = create_trend_chart(df, selected_etf)
+        trend_chart = create_trend_chart(df, st.session_state["etf_selected_label"])
         if trend_chart:
             st.plotly_chart(trend_chart, use_container_width=True)
             # 趋势型分析结论
-            display_trend_analysis_conclusion(df, signals, selected_etf)
+            display_trend_analysis_conclusion(df, signals, st.session_state["etf_selected_label"])
         
         # 2. 摆动型指标图表（RSI+KDJ）
-        oscillator_chart = create_oscillator_chart(df, selected_etf)
+        oscillator_chart = create_oscillator_chart(df, st.session_state["etf_selected_label"])
         if oscillator_chart:
             st.plotly_chart(oscillator_chart, use_container_width=True)
             # 摆动型分析结论
-            display_oscillator_analysis_conclusion(df, signals, selected_etf)
+            display_oscillator_analysis_conclusion(df, signals, st.session_state["etf_selected_label"])
         
         # 3. 能量型指标图表（成交量+OBV）
-        energy_chart = create_energy_chart(df, selected_etf)
+        energy_chart = create_energy_chart(df, st.session_state["etf_selected_label"])
         if energy_chart:
             st.plotly_chart(energy_chart, use_container_width=True)
             # 能量型分析结论
-            display_energy_analysis_conclusion(df, signals, selected_etf)
+            display_energy_analysis_conclusion(df, signals, st.session_state["etf_selected_label"])
         
         # 4. 空间型指标图表（布林带+支撑压力）
-        space_chart = create_space_chart(df, selected_etf)
+        space_chart = create_space_chart(df, st.session_state["etf_selected_label"])
         if space_chart:
             st.plotly_chart(space_chart, use_container_width=True)
             # 空间型分析结论
-            display_space_analysis_conclusion(df, signals, selected_etf)
+            display_space_analysis_conclusion(df, signals, st.session_state["etf_selected_label"])
         
         # 显示历史数据
         st.subheader("📋 历史数据")
@@ -1777,6 +1761,17 @@ def main():
     
     else:
         st.warning("⚠️ 无法加载ETF数据，请检查网络连接或参数设置")
+
+    # 下方独立区域展示完整策略推荐矩阵
+    st.markdown("---")
+    with st.expander("📚 期权策略推荐完整矩阵（基于共振评分 0-8）", expanded=False):
+        matrix_rows = [
+            {"评分区间": "6-8（强共振看多）", "市场预期": "强烈看涨，预期大涨", "推荐策略": "买入看涨期权 (Long Call)", "核心逻辑": "最直接、潜在收益无限的做多策略。"},
+            {"评分区间": "4-5（中度共振看多）", "市场预期": "温和看涨，预期缓涨", "推荐策略": "牛市看涨价差 (Bull Call Spread)", "核心逻辑": "降低成本，适合温和上涨行情，收益风险均有限。"},
+            {"评分区间": "2-3（弱共振看多）", "市场预期": "中性略偏多，或震荡略偏强", "推荐策略": "卖出看跌期权 (Sell Put)", "核心逻辑": "赚取权利金，或愿意以行权价买入标的。"},
+            {"评分区间": "0-1（无共振/偏空）", "市场预期": "方向不明或略微偏空", "推荐策略": "观望 或 中性策略（如卖跨式）", "核心逻辑": "避免方向性交易。"},
+        ]
+        st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
 
 if __name__ == "__main__":
     main()

@@ -9,23 +9,77 @@ from datetime import datetime, timedelta
 
 @st.cache_data(ttl=3600)
 def load_etf_data(symbol: str, period: str = "daily", days: int = 250) -> pd.DataFrame | None:
-    try:
-        end_date = datetime.now().strftime("%Y%m%d")
-        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-        df = ak.fund_etf_hist_em(
-            symbol=symbol,
-            period=period,
-            start_date=start_date,
-            end_date=end_date,
-            adjust="qfq",
-        )
-        if df is None or df.empty:
-            return None
-        df["日期"] = pd.to_datetime(df["日期"]).dt.tz_localize(None)
-        return df.sort_values("日期").reset_index(drop=True)
-    except Exception as e:
-        st.error(f"数据加载失败: {e}")
-        return None
+	try:
+		end_date = datetime.now().strftime("%Y%m%d")
+		start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+		df = ak.fund_etf_hist_em(
+			symbol=symbol,
+			period=period,
+			start_date=start_date,
+			end_date=end_date,
+			adjust="qfq",
+		)
+		if df is not None and not df.empty:
+			df["日期"] = pd.to_datetime(df["日期"]).dt.tz_localize(None)
+			return df.sort_values("日期").reset_index(drop=True)
+	except Exception as e:
+		# 不立即返回，尝试备用源
+		st.warning(f"实时接口超时或失败，尝试启用新浪备用数据源… ({e})")
+
+	# 备用：新浪 fund_etf_hist_sina
+	try:
+		from utils.option_utils import get_fund_etf_hist_sina
+		# 将代码映射为新浪代码：常见规则 5xx/51x/56x等为上海，159xxx多为深圳
+		code = str(symbol)
+		if code.startswith("sh") or code.startswith("sz"):
+			sina_symbol = code
+		else:
+			if code.startswith("5") or code.startswith("51") or code.startswith("56"):
+				sina_symbol = f"sh{code}"
+			elif code.startswith("1") or code.startswith("159"):
+				sina_symbol = f"sz{code}"
+			else:
+				# 默认上交所前缀
+				sina_symbol = f"sh{code}"
+
+		df_sina = get_fund_etf_hist_sina(sina_symbol)
+		if df_sina is None or df_sina.empty:
+			return None
+
+		# 重命名并对齐字段
+		df_sina = df_sina.rename(columns={
+			"date": "日期",
+			"open": "开盘",
+			"high": "最高",
+			"low": "最低",
+			"close": "收盘",
+			"volume": "成交量",
+		})
+		df_sina["日期"] = pd.to_datetime(df_sina["日期"]).dt.tz_localize(None)
+		df_sina = df_sina.sort_values("日期").reset_index(drop=True)
+
+		# 仅保留最近 days 天
+		cutoff = pd.Timestamp.now().tz_localize(None) - pd.Timedelta(days=days)
+		df_sina = df_sina[df_sina["日期"] >= cutoff]
+
+		# 频率转换
+		if period in ("weekly", "monthly"):
+			freq = "W" if period == "weekly" else "M"
+			df_sina = (
+				df_sina.set_index("日期").resample(freq).agg({
+					"开盘": "first",
+					"最高": "max",
+					"最低": "min",
+					"收盘": "last",
+					"成交量": "sum",
+				}).dropna(how="any").reset_index()
+			)
+
+		st.info("已启用新浪备用数据源（fund_etf_hist_sina）")
+		return df_sina
+	except Exception as e2:
+		st.error(f"备用数据源也失败：{e2}")
+		return None
 
 
 def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
