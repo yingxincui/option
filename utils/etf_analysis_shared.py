@@ -125,6 +125,14 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # 成交量均线
     df["Volume_MA5"] = df["成交量"].rolling(5).mean()
     df["Volume_MA10"] = df["成交量"].rolling(10).mean()
+    # 波动率指标
+    # 历史波动率（基于20日收益率标准差）
+    df["Return"] = df["收盘"].pct_change()
+    df["HV20"] = df["Return"].rolling(20).std() * np.sqrt(252) * 100  # 年化历史波动率%
+    # 布林带宽度（反映价格波动率）
+    df["BB_Width"] = ((df["BB_Upper"] - df["BB_Lower"]) / df["BB_Middle"]) * 100
+    # 布林带宽度5日均值（平滑波动率）
+    df["BB_Width_MA5"] = df["BB_Width"].rolling(5).mean()
     return df
 
 
