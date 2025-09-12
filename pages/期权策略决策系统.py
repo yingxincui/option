@@ -464,6 +464,105 @@ table_css = """
 </style>
 """
 
+# 添加下载功能
+st.markdown("#### 📥 数据下载")
+col1, col2, col3 = st.columns([1, 1, 3])
+
+# 准备下载用的数据（去除emoji，便于Excel处理）
+download_df = ind_df.copy()
+download_df['类别'] = download_df['🔎']
+download_df = download_df.drop('🔎', axis=1)
+# 添加当前时间和标的信息
+current_time = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+download_df.insert(0, '分析时间', current_time)
+download_df.insert(1, '标的名称', sel_label)
+download_df.insert(2, '总信号分', score)
+
+# 准备AI分析用的文本数据
+copy_text = f"""请基于以下期权策略技术分析数据，推荐最适合的期权交易策略：
+
+【分析对象】{sel_label}
+【分析时间】{current_time}
+【总信号分】{score:+d} 分（范围：-5到+5）
+【当前策略建议】{advice}
+
+【详细技术指标数据】
+"""
+
+for _, row in download_df.iterrows():
+    copy_text += f"• {row['指标']}：{row['数值']} | {row['判定结果']} | 评分：{row['数值评分']}\n"
+
+copy_text += f"""
+
+【五维分析得分】
+• 趋势(MA)：{ma_sig:+d}
+• 动能(MACD)：{macd_sig:+d} 
+• 位置(BOLL)：{pos_sig:+d}
+• 能量(VOL)：{energy_sig:+d}
+• 波动率(HV)：{volatility_sig:+d}
+
+【分析要求】
+1. 基于五维技术指标，评估当前市场状态
+2. 结合总信号分，推荐最适合的期权策略组合
+3. 考虑风险控制和资金管理建议
+4. 提供具体的入场时机和止损点位
+5. 如有不同观点，请说明理由和替代方案
+"""
+
+with col1:
+    # CSV下载
+    csv_data = download_df.to_csv(index=False, encoding='utf-8-sig')
+    st.download_button(
+        label="📊 下载CSV",
+        data=csv_data,
+        file_name=f"期权策略技术指标_{sel_label.replace(' ', '_')}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
+        mime="text/csv",
+        help="下载技术指标数据为CSV格式"
+    )
+
+with col2:
+    # Excel下载
+    from io import BytesIO
+    excel_buffer = BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        download_df.to_excel(writer, sheet_name='技术指标', index=False)
+        # 添加策略建议到第二个sheet
+        strategy_df = pd.DataFrame({
+            '分析时间': [current_time],
+            '标的名称': [sel_label],
+            '总信号分': [score],
+            '核心策略': [advice],
+            '策略说明': [explain]
+        })
+        strategy_df.to_excel(writer, sheet_name='策略建议', index=False)
+    excel_buffer.seek(0)
+    
+    st.download_button(
+        label="📈 下载Excel",
+        data=excel_buffer.getvalue(),
+        file_name=f"期权策略分析_{sel_label.replace(' ', '_')}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        help="下载完整分析报告为Excel格式（包含技术指标和策略建议）"
+    )
+
+# 显示查看 AI 分析文本的选项
+with st.expander("📄 查看 AI 分析提示词", expanded=False):
+    st.text_area(
+        "AI分析提示词（可复制给AI助手分析）：",
+        copy_text,
+        height=250,
+        help="请全选(Ctrl+A)并复制(Ctrl+C)此内容，然后粘贴给AI助手进行深度分析",
+        key="ai_analysis_text_area"
+    )
+    st.info("""
+    💡 **使用说明：**
+    1. 点击上方文本框，使用 Ctrl+A 全选所有内容
+    2. 使用 Ctrl+C 复制文本  
+    3. 将复制的内容粘贴给任何AI助手（如ChatGPT、Claude等）
+    4. AI会基于这些数据为您提供专业的期权策略建议
+    """)
+
+st.markdown("")
 st.markdown(table_css + styled.to_html(), unsafe_allow_html=True)
 
 st.markdown("---")
