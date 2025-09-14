@@ -1,9 +1,127 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
 from utils.etf_analysis_shared import load_etf_data, calculate_technical_indicators
 from utils.etf_analysis_shared import create_etf_chart
 from pages.etf技术分析 import ETF_CONFIG
+
+# 支撑点和压力点分析函数
+def calculate_support_resistance(df: pd.DataFrame, window: int = 20) -> dict:
+    """
+    计算支撑点和压力点
+    """
+    if df is None or df.empty or len(df) < window:
+        return {}
+    
+    # 获取最近数据进行分析
+    recent_df = df.tail(min(100, len(df)))  # 最近100个交易日
+    
+    # 方法1：基于局部高低点识别支撑阻力
+    highs = []
+    lows = []
+    
+    for i in range(window//2, len(recent_df) - window//2):
+        # 寻找局部高点
+        if recent_df.iloc[i]['最高'] == recent_df.iloc[i-window//2:i+window//2+1]['最高'].max():
+            highs.append(recent_df.iloc[i]['最高'])
+        
+        # 寻找局部低点
+        if recent_df.iloc[i]['最低'] == recent_df.iloc[i-window//2:i+window//2+1]['最低'].min():
+            lows.append(recent_df.iloc[i]['最低'])
+    
+    # 方法2：基于价格密集区域
+    prices = pd.concat([recent_df['最高'], recent_df['最低'], recent_df['收盘']])
+    price_range = prices.max() - prices.min()
+    bins = 20  # 将价格区间分为20个区间
+    price_counts, bin_edges = np.histogram(prices, bins=bins)
+    
+    # 找到价格密集区域（交易频繁的价格区间）
+    density_threshold = np.percentile(price_counts, 70)  # 前30%的密集区域
+    dense_areas = []
+    for i, count in enumerate(price_counts):
+        if count >= density_threshold:
+            dense_areas.append((bin_edges[i] + bin_edges[i+1]) / 2)
+    
+    # 方法3：基于均线和布林带
+    latest = recent_df.iloc[-1]
+    current_price = latest['收盘']
+    
+    # 整合所有支撑阻力位
+    all_levels = []
+    
+    # 添加局部高低点
+    all_levels.extend([(price, '局部高点', '阻力') for price in highs if abs(price - current_price) / current_price <= 0.15])
+    all_levels.extend([(price, '局部低点', '支撑') for price in lows if abs(price - current_price) / current_price <= 0.15])
+    
+    # 添加密集区域
+    all_levels.extend([(price, '价格密集区', '支撑/阻力') for price in dense_areas if abs(price - current_price) / current_price <= 0.15])
+    
+    # 添加技术指标位
+    ma_levels = []
+    for ma_period in [5, 10, 20, 60]:
+        ma_key = f'MA{ma_period}'
+        if ma_key in latest and not pd.isna(latest[ma_key]):
+            ma_value = latest[ma_key]
+            if abs(ma_value - current_price) / current_price <= 0.1:  # 10%范围内的均线
+                level_type = '支撑' if ma_value < current_price else '阻力'
+                all_levels.append((ma_value, f'{ma_key}均线', level_type))
+    
+    # 添加布林带
+    if not pd.isna(latest.get('BB_Upper', np.nan)) and not pd.isna(latest.get('BB_Lower', np.nan)):
+        bb_upper = latest['BB_Upper']
+        bb_lower = latest['BB_Lower']
+        bb_middle = latest.get('BB_Middle', np.nan)
+        
+        if abs(bb_upper - current_price) / current_price <= 0.1:
+            all_levels.append((bb_upper, '布林上轨', '阻力'))
+        if abs(bb_lower - current_price) / current_price <= 0.1:
+            all_levels.append((bb_lower, '布林下轨', '支撑'))
+        if not pd.isna(bb_middle) and abs(bb_middle - current_price) / current_price <= 0.1:
+            level_type = '支撑' if bb_middle < current_price else '阻力'
+            all_levels.append((bb_middle, '布林中轨', level_type))
+    
+    # 去重和排序
+    # 按价格分组，合并相近的价位
+    price_tolerance = current_price * 0.01  # 1%的容忍度
+    grouped_levels = []
+    
+    if all_levels:
+        all_levels.sort(key=lambda x: x[0])  # 按价格排序
+        
+        current_group = [all_levels[0]]
+        for level in all_levels[1:]:
+            if abs(level[0] - current_group[0][0]) <= price_tolerance:
+                current_group.append(level)
+            else:
+                # 处理当前组
+                avg_price = np.mean([l[0] for l in current_group])
+                sources = list(set([l[1] for l in current_group]))
+                types = list(set([l[2] for l in current_group]))
+                grouped_levels.append((avg_price, ' + '.join(sources), '/'.join(types)))
+                current_group = [level]
+        
+        # 处理最后一组
+        if current_group:
+            avg_price = np.mean([l[0] for l in current_group])
+            sources = list(set([l[1] for l in current_group]))
+            types = list(set([l[2] for l in current_group]))
+            grouped_levels.append((avg_price, ' + '.join(sources), '/'.join(types)))
+    
+    # 分离支撑和阻力
+    supports = [(price, source) for price, source, type_ in grouped_levels if '支撑' in type_ and price < current_price]
+    resistances = [(price, source) for price, source, type_ in grouped_levels if '阻力' in type_ and price > current_price]
+    
+    # 排序：支撑从高到低，阻力从低到高
+    supports.sort(key=lambda x: x[0], reverse=True)
+    resistances.sort(key=lambda x: x[0])
+    
+    return {
+        'supports': supports[:5],  # 最近的5个支撑位
+        'resistances': resistances[:5],  # 最近的5个阻力位
+        'current_price': current_price,
+        'all_levels': grouped_levels
+    }
 
 st.set_page_config(page_title="期权策略决策系统", page_icon="🧭", layout="wide", initial_sidebar_state="expanded")
 
@@ -39,6 +157,9 @@ if df is None or df.empty:
 df = calculate_technical_indicators(df)
 latest = df.iloc[-1]
 prev = df.iloc[-2] if len(df) >= 2 else latest
+
+# 计算支撑点和压力点分析
+support_resistance = calculate_support_resistance(df)
 
 # 五维信号计算规则
 # 1) 趋势（MA）
@@ -100,6 +221,211 @@ score = ma_sig + macd_sig + pos_sig + energy_sig + volatility_sig
 # 卡片配色选择函数
 def cls(sig: int) -> str:
     return "metric-pos" if sig > 0 else ("metric-neg" if sig < 0 else "metric-neu")
+
+# 创建增强的K线图，包含支撑压力线
+def create_enhanced_etf_chart(df: pd.DataFrame, title: str, support_resistance: dict) -> go.Figure | None:
+    """
+    创建包含支撑压力线的增强K线图
+    """
+    if df is None or df.empty:
+        return None
+    
+    fig = go.Figure()
+    
+    # 添加K线
+    fig.add_trace(go.Candlestick(
+        x=df["日期"], 
+        open=df["开盘"], 
+        high=df["最高"], 
+        low=df["最低"], 
+        close=df["收盘"], 
+        name="K线",
+        increasing_line_color="red", 
+        decreasing_line_color="green",
+    ))
+    
+    # 添加均线
+    fig.add_trace(go.Scatter(x=df["日期"], y=df["MA5"], mode="lines", name="MA5", line=dict(width=1, color='orange')))
+    fig.add_trace(go.Scatter(x=df["日期"], y=df["MA10"], mode="lines", name="MA10", line=dict(width=1, color='blue')))
+    fig.add_trace(go.Scatter(x=df["日期"], y=df["MA20"], mode="lines", name="MA20", line=dict(width=1, color='purple')))
+    
+    # 添加布林带
+    fig.add_trace(go.Scatter(x=df["日期"], y=df["BB_Upper"], mode="lines", name="布林上轨", 
+                           line=dict(dash="dash", width=1, color='gray'), opacity=0.7))
+    fig.add_trace(go.Scatter(x=df["日期"], y=df["BB_Lower"], mode="lines", name="布林下轨", 
+                           line=dict(dash="dash", width=1, color='gray'), opacity=0.7, 
+                           fill="tonexty", fillcolor="rgba(128,128,128,0.1)"))
+    
+    # 添加支撑线
+    if support_resistance and support_resistance.get('supports'):
+        for i, (price, source) in enumerate(support_resistance['supports'][:3]):
+            fig.add_hline(y=price, line_dash='solid', line_color='green', line_width=2, opacity=0.8,
+                         annotation_text=f'S{i+1}: {price:.2f}', annotation_position='left')
+    
+    # 添加压力线
+    if support_resistance and support_resistance.get('resistances'):
+        for i, (price, source) in enumerate(support_resistance['resistances'][:3]):
+            fig.add_hline(y=price, line_dash='solid', line_color='red', line_width=2, opacity=0.8,
+                         annotation_text=f'R{i+1}: {price:.2f}', annotation_position='right')
+    
+    fig.update_layout(
+        title=title, 
+        xaxis_title="日期", 
+        yaxis_title="价格", 
+        height=600, 
+        hovermode="x unified",
+        showlegend=True,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+    )
+    
+    return fig
+
+# 期权策略盈亏图绘制函数
+def create_strategy_payoff_chart(strategy_name: str, current_price: float) -> go.Figure:
+    """
+    创建期权策略盈亏图
+    """
+    # 价格范围：当前价格的±30%
+    price_range = np.linspace(current_price * 0.7, current_price * 1.3, 100)
+    
+    fig = go.Figure()
+    
+    if "牛市看涨价差" in strategy_name or "Bull Call Spread" in strategy_name:
+        # 牛市看涨价差：买入低行权价Call，卖出高行权价Call
+        k1 = current_price * 0.98  # 买入Call行权价（略低于当前价）
+        k2 = current_price * 1.05  # 卖出Call行权价（高于当前价）
+        premium_paid = current_price * 0.02  # 净权利金支出
+        
+        payoff = np.where(price_range <= k1, -premium_paid,
+                 np.where(price_range >= k2, (k2 - k1) - premium_paid,
+                         (price_range - k1) - premium_paid))
+        
+        title = f"牛市看涨价差策略盈亏图\n买入{k1:.2f}Call，卖出{k2:.2f}Call"
+        
+    elif "熊市看跌价差" in strategy_name or "Bear Put Spread" in strategy_name:
+        # 熊市看跌价差：买入高行权价Put，卖出低行权价Put
+        k1 = current_price * 1.02  # 买入Put行权价（高于当前价）
+        k2 = current_price * 0.95  # 卖出Put行权价（低于当前价）
+        premium_paid = current_price * 0.02  # 净权利金支出
+        
+        payoff = np.where(price_range >= k1, -premium_paid,
+                 np.where(price_range <= k2, (k1 - k2) - premium_paid,
+                         (k1 - price_range) - premium_paid))
+        
+        title = f"熊市看跌价差策略盈亏图\n买入{k1:.2f}Put，卖出{k2:.2f}Put"
+        
+    elif "卖出看跌" in strategy_name or "Sell Put" in strategy_name:
+        # 卖出看跌期权
+        k = current_price * 0.95  # Put行权价
+        premium_received = current_price * 0.02  # 收取权利金
+        
+        payoff = np.where(price_range >= k, premium_received,
+                         premium_received - (k - price_range))
+        
+        title = f"卖出看跌期权策略盈亏图\n卖出{k:.2f}Put"
+        
+    elif "卖出看涨" in strategy_name or "Sell Call" in strategy_name:
+        # 卖出看涨期权
+        k = current_price * 1.05  # Call行权价
+        premium_received = current_price * 0.02  # 收取权利金
+        
+        payoff = np.where(price_range <= k, premium_received,
+                         premium_received - (price_range - k))
+        
+        title = f"卖出看涨期权策略盈亏图\n卖出{k:.2f}Call"
+        
+    elif "铁蝶" in strategy_name or "Iron Butterfly" in strategy_name:
+        # 铁蝶式：卖出ATM Call/Put，买入OTM Call/Put保护
+        atm = current_price
+        otm_call = current_price * 1.05
+        otm_put = current_price * 0.95
+        net_premium = current_price * 0.015  # 净收取权利金
+        
+        payoff = np.where(price_range <= otm_put, 
+                         net_premium - (otm_put - price_range),
+                 np.where(price_range >= otm_call,
+                         net_premium - (price_range - otm_call),
+                         net_premium))
+        
+        title = f"铁蝶式策略盈亏图\n卖出{atm:.2f}跨式，买入{otm_put:.2f}Put/{otm_call:.2f}Call保护"
+        
+    elif "宽跨式" in strategy_name:
+        if "卖出" in strategy_name or "Short" in strategy_name:
+            # 卖出宽跨式
+            call_strike = current_price * 1.05
+            put_strike = current_price * 0.95
+            net_premium = current_price * 0.025  # 净收取权利金
+            
+            payoff = np.where(price_range <= put_strike,
+                             net_premium - (put_strike - price_range),
+                     np.where(price_range >= call_strike,
+                             net_premium - (price_range - call_strike),
+                             net_premium))
+            
+            title = f"卖出宽跨式策略盈亏图\n卖出{put_strike:.2f}Put + {call_strike:.2f}Call"
+        else:
+            # 买入宽跨式
+            call_strike = current_price * 1.05
+            put_strike = current_price * 0.95
+            net_premium = current_price * 0.025  # 净支付权利金
+            
+            payoff = np.where(price_range <= put_strike,
+                             (put_strike - price_range) - net_premium,
+                     np.where(price_range >= call_strike,
+                             (price_range - call_strike) - net_premium,
+                             -net_premium))
+            
+            title = f"买入宽跨式策略盈亏图\n买入{put_strike:.2f}Put + {call_strike:.2f}Call"
+    else:
+        # 默认：简单的线性盈亏
+        payoff = np.zeros_like(price_range)
+        title = "策略盈亏图"
+    
+    # 绘制盈亏线
+    colors = ['green' if p >= 0 else 'red' for p in payoff]
+    fig.add_trace(go.Scatter(
+        x=price_range,
+        y=payoff,
+        mode='lines',
+        name='策略盈亏',
+        line=dict(width=3, color='blue'),
+        fill='tozeroy',
+        fillcolor='rgba(0,100,255,0.1)'
+    ))
+    
+    # 添加盈亏平衡线
+    fig.add_hline(y=0, line_dash='dash', line_color='gray', opacity=0.8)
+    
+    # 添加当前价格线
+    fig.add_vline(x=current_price, line_dash='dot', line_color='orange', 
+                  annotation_text=f'当前价格: {current_price:.2f}', 
+                  annotation_position='top')
+    
+    # 找到盈亏平衡点
+    zero_crossings = []
+    for i in range(len(payoff)-1):
+        if (payoff[i] <= 0 <= payoff[i+1]) or (payoff[i] >= 0 >= payoff[i+1]):
+            if abs(payoff[i]) < abs(payoff[i+1]):
+                zero_crossings.append(price_range[i])
+            else:
+                zero_crossings.append(price_range[i+1])
+    
+    # 标记盈亏平衡点
+    for point in zero_crossings:
+        fig.add_vline(x=point, line_dash='dashdot', line_color='purple', opacity=0.6,
+                      annotation_text=f'平衡点: {point:.2f}', annotation_position='bottom')
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title='标的价格',
+        yaxis_title='策略盈亏',
+        height=400,
+        showlegend=False,
+        hovermode='x unified',
+        plot_bgcolor='rgba(240,240,240,0.1)'
+    )
+    
+    return fig
 
 # —— 将“决策建议”放在最上方（标题下、卡片上） ——
 advice = ""
@@ -192,13 +518,26 @@ else:  # -1 ~ +1
 
 st.markdown("---")
 st.subheader("🎯 决策建议（置顶）")
-st.markdown(f"**标的**：{sel_label}  |  **总信号分**：{score:+d}")
-st.markdown(f"**核心策略**：{advice}")
-st.markdown(f"**策略说明**：{explain}")
-if extra:
-    st.markdown("**执行要点**：")
-    for x in extra:
-        st.markdown(f"- {x}")
+
+# 使用列布局：左侧显示策略信息，右侧显示盈亏图
+col_strategy, col_chart = st.columns([1.2, 1])
+
+with col_strategy:
+    st.markdown(f"**标的**：{sel_label}  |  **总信号分**：{score:+d}")
+    st.markdown(f"**核心策略**：{advice}")
+    st.markdown(f"**策略说明**：{explain}")
+    if extra:
+        st.markdown("**执行要点**：")
+        for x in extra:  # 显示所有执行要点，不再折叠
+            st.markdown(f"- {x}")
+
+with col_chart:
+    try:
+        # 绘制对应策略的盈亏图
+        payoff_fig = create_strategy_payoff_chart(advice, latest['收盘'])
+        st.plotly_chart(payoff_fig, use_container_width=True, key="strategy_payoff_chart")
+    except Exception as e:
+        st.info(f"盈亏图暂时无法显示: {e}")
 
 # 展示指标与信号（五维+总分）
 c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -310,10 +649,99 @@ with c6:
 
 # 在卡片下方加入标的K线主图
 st.markdown("---")
-st.subheader(f"{sel_label} · 日线主图")
-main_fig = create_etf_chart(df, f"{sel_label} 技术分析图表")
+st.subheader(f"{sel_label} · 日线主图（含支撑压力位）")
+main_fig = create_enhanced_etf_chart(df, f"{sel_label} 技术分析图表", support_resistance)
 if main_fig:
     st.plotly_chart(main_fig, use_container_width=True)
+
+# 支撑点和压力点分析
+st.markdown("---")
+st.subheader("🎯 支撑压力点分析")
+
+if support_resistance and support_resistance.get('supports') or support_resistance.get('resistances'):
+    col_support, col_resistance = st.columns(2)
+    
+    with col_support:
+        st.markdown("#### 📈 关键支撑位")
+        supports = support_resistance.get('supports', [])
+        if supports:
+            for i, (price, source) in enumerate(supports, 1):
+                current_price = support_resistance.get('current_price', latest['收盘'])
+                distance_pct = ((current_price - price) / current_price) * 100
+                st.markdown(
+                    f"**S{i}**: {price:.2f} ({source})  "
+                    f"📍 距离当前价格 **{distance_pct:.1f}%**"
+                )
+        else:
+            st.info("暂无明显支撑位")
+    
+    with col_resistance:
+        st.markdown("#### 📉 关键压力位")
+        resistances = support_resistance.get('resistances', [])
+        if resistances:
+            for i, (price, source) in enumerate(resistances, 1):
+                current_price = support_resistance.get('current_price', latest['收盘'])
+                distance_pct = ((price - current_price) / current_price) * 100
+                st.markdown(
+                    f"**R{i}**: {price:.2f} ({source})  "
+                    f"📍 距离当前价格 **+{distance_pct:.1f}%**"
+                )
+        else:
+            st.info("暂无明显压力位")
+    
+    # 期权策略建议基于支撑压力位
+    st.markdown("#### 🎲 基于支撑压力位的期权策略建议")
+    
+    current_price = support_resistance.get('current_price', latest['收盘'])
+    supports = support_resistance.get('supports', [])
+    resistances = support_resistance.get('resistances', [])
+    
+    strategy_suggestions = []
+    
+    # 分析当前价格与支撑压力的关系
+    if supports:
+        nearest_support = supports[0][0]  # 最近的支撑位
+        support_distance = ((current_price - nearest_support) / current_price) * 100
+        
+        if support_distance <= 3:  # 接近支撑位（3%以内）
+            strategy_suggestions.append(
+                f"💡 **接近关键支撑{nearest_support:.2f}**：可考虑卖出虚值Put策略，行权价设在{nearest_support:.2f}附近"
+            )
+            strategy_suggestions.append(
+                f"⚠️ **风险提示**：若跌破支撑位，应及时止损或买入Put对冲"
+            )
+    
+    if resistances:
+        nearest_resistance = resistances[0][0]  # 最近的压力位
+        resistance_distance = ((nearest_resistance - current_price) / current_price) * 100
+        
+        if resistance_distance <= 3:  # 接近压力位（3%以内）
+            strategy_suggestions.append(
+                f"💡 **接近关键压力{nearest_resistance:.2f}**：可考虑卖出虚值Call策略，行权价设在{nearest_resistance:.2f}附近"
+            )
+            strategy_suggestions.append(
+                f"⚠️ **风险提示**：若突破压力位，应及时止损或买入Call对冲"
+            )
+    
+    # 区间交易策略
+    if supports and resistances:
+        support_price = supports[0][0]
+        resistance_price = resistances[0][0]
+        range_pct = ((resistance_price - support_price) / current_price) * 100
+        
+        if range_pct >= 5:  # 区间足够大（5%以上）
+            strategy_suggestions.append(
+                f"🎯 **区间交易策略**：在{support_price:.2f}-{resistance_price:.2f}区间内，"
+                f"可构建宽跨式卖方策略（卖出{support_price:.2f}Put + {resistance_price:.2f}Call）"
+            )
+    
+    if strategy_suggestions:
+        for suggestion in strategy_suggestions:
+            st.markdown(f"- {suggestion}")
+    else:
+        st.info("当前价格位置暂无特别的支撑压力位策略建议")
+else:
+    st.info("支撑压力分析数据不足，建议增加历史数据天数")
 
 # 核心技术指标表格
 st.subheader("📋 核心技术指标与含义（含判定规则与结果）")
@@ -372,6 +800,189 @@ if not pd.isna(rsi_value):
         rsi_base = "中性"; rsi_emoji = "⚪"; rsi_num = 0
 rsi_result = f"{rsi_emoji} {rsi_base}"
 
+# KDJ判定（随机指标）
+k_value = latest.get('K', np.nan)
+d_value = latest.get('D', np.nan)
+j_value = latest.get('J', np.nan)
+
+# KDJ超买超卖判定
+kdj_rule = "K/D < 20 超卖(偏多)；K/D > 80 超买(偏空)；20-80 中性；金叉/死叉确认"
+kdj_base = "中性"; kdj_emoji = "⚪"; kdj_num = 0
+
+if not pd.isna(k_value) and not pd.isna(d_value):
+    # 判断超买超卖
+    if k_value < 20 and d_value < 20:
+        kdj_base = "超卖(偏多)"; kdj_emoji = "🔥"; kdj_num = 1
+    elif k_value > 80 and d_value > 80:
+        kdj_base = "超买(偏空)"; kdj_emoji = "🧊"; kdj_num = -1
+    else:
+        # 判断金叉死叉（需要前一日数据）
+        if len(df) >= 2:
+            prev_k = prev.get('K', np.nan)
+            prev_d = prev.get('D', np.nan)
+            
+            if not pd.isna(prev_k) and not pd.isna(prev_d):
+                # 金叉：K线从下方穿越D线
+                if prev_k <= prev_d and k_value > d_value:
+                    if k_value < 20:  # 低位金叉
+                        kdj_base = "低位金叉(强买入)"; kdj_emoji = "🔥"; kdj_num = 1
+                    else:
+                        kdj_base = "金叉(偏多)"; kdj_emoji = "🔥"; kdj_num = 1
+                # 死叉：K线从上方穿越D线
+                elif prev_k >= prev_d and k_value < d_value:
+                    if k_value > 80:  # 高位死叉
+                        kdj_base = "高位死叉(强卖出)"; kdj_emoji = "🧊"; kdj_num = -1
+                    else:
+                        kdj_base = "死叉(偏空)"; kdj_emoji = "🧊"; kdj_num = -1
+                else:
+                    # 无交叉，判断当前位置
+                    if k_value > d_value:
+                        kdj_base = "K>D(偏多)"; kdj_emoji = "🔥"; kdj_num = 1
+                    else:
+                        kdj_base = "K<D(偏空)"; kdj_emoji = "🧊"; kdj_num = -1
+
+kdj_result = f"{kdj_emoji} {kdj_base}"
+
+# KDJ背离分析
+def detect_kdj_divergence(df: pd.DataFrame, window: int = 10) -> dict:
+    """
+    检测KDJ背离现象
+    """
+    if df is None or len(df) < window + 5:
+        return {"type": "无背离", "strength": 0, "description": "数据不足"}
+    
+    # 获取最近的数据
+    recent_data = df.tail(window + 5)
+    prices = recent_data['收盘'].values
+    k_values = recent_data.get('K', pd.Series([np.nan] * len(recent_data))).values
+    d_values = recent_data.get('D', pd.Series([np.nan] * len(recent_data))).values
+    
+    # 检查数据有效性
+    if np.isnan(k_values).all() or np.isnan(d_values).all():
+        return {"type": "无背离", "strength": 0, "description": "KDJ数据无效"}
+    
+    # 寻找价格的高点和低点
+    price_highs = []
+    price_lows = []
+    kdj_highs = []
+    kdj_lows = []
+    
+    for i in range(2, len(prices) - 2):
+        # 寻找价格高点
+        if prices[i] > prices[i-1] and prices[i] > prices[i+1] and prices[i] > prices[i-2] and prices[i] > prices[i+2]:
+            price_highs.append((i, prices[i]))
+            if not np.isnan(k_values[i]):
+                kdj_highs.append((i, k_values[i]))
+        
+        # 寻找价格低点
+        if prices[i] < prices[i-1] and prices[i] < prices[i+1] and prices[i] < prices[i-2] and prices[i] < prices[i+2]:
+            price_lows.append((i, prices[i]))
+            if not np.isnan(k_values[i]):
+                kdj_lows.append((i, k_values[i]))
+    
+    # 检测顶背离（价格创新高，KDJ不创新高）
+    if len(price_highs) >= 2 and len(kdj_highs) >= 2:
+        # 取最近的两个高点
+        recent_price_highs = sorted(price_highs, key=lambda x: x[0])[-2:]
+        recent_kdj_highs = sorted(kdj_highs, key=lambda x: x[0])[-2:]
+        
+        if (len(recent_price_highs) >= 2 and len(recent_kdj_highs) >= 2 and
+            recent_price_highs[1][1] > recent_price_highs[0][1] and  # 价格创新高
+            recent_kdj_highs[1][1] < recent_kdj_highs[0][1]):       # KDJ不创新高
+            
+            # 计算背离强度
+            price_diff = (recent_price_highs[1][1] - recent_price_highs[0][1]) / recent_price_highs[0][1] * 100
+            kdj_diff = recent_kdj_highs[0][1] - recent_kdj_highs[1][1]
+            
+            if price_diff > 2 and kdj_diff > 5:  # 显著背离
+                return {
+                    "type": "顶背离", 
+                    "strength": -1, 
+                    "description": f"价格涨{price_diff:.1f}%但KDJ回落{kdj_diff:.1f}点(强卖出信号)"
+                }
+            elif price_diff > 1 and kdj_diff > 3:  # 轻微背离
+                return {
+                    "type": "顶背离", 
+                    "strength": -1, 
+                    "description": f"价格涨{price_diff:.1f}%但KDJ回落{kdj_diff:.1f}点(卖出信号)"
+                }
+    
+    # 检测底背离（价格创新低，KDJ不创新低）
+    if len(price_lows) >= 2 and len(kdj_lows) >= 2:
+        # 取最近的两个低点
+        recent_price_lows = sorted(price_lows, key=lambda x: x[0])[-2:]
+        recent_kdj_lows = sorted(kdj_lows, key=lambda x: x[0])[-2:]
+        
+        if (len(recent_price_lows) >= 2 and len(recent_kdj_lows) >= 2 and
+            recent_price_lows[1][1] < recent_price_lows[0][1] and   # 价格创新低
+            recent_kdj_lows[1][1] > recent_kdj_lows[0][1]):        # KDJ不创新低
+            
+            # 计算背离强度
+            price_diff = (recent_price_lows[0][1] - recent_price_lows[1][1]) / recent_price_lows[0][1] * 100
+            kdj_diff = recent_kdj_lows[1][1] - recent_kdj_lows[0][1]
+            
+            if price_diff > 2 and kdj_diff > 5:  # 显著背离
+                return {
+                    "type": "底背离", 
+                    "strength": 1, 
+                    "description": f"价格跌{price_diff:.1f}%但KDJ上升{kdj_diff:.1f}点(强买入信号)"
+                }
+            elif price_diff > 1 and kdj_diff > 3:  # 轻微背离
+                return {
+                    "type": "底背离", 
+                    "strength": 1, 
+                    "description": f"价格跌{price_diff:.1f}%但KDJ上升{kdj_diff:.1f}点(买入信号)"
+                }
+    
+    return {"type": "无背离", "strength": 0, "description": "未发现明显背离现象"}
+
+# 执行背离分析
+kdj_divergence = detect_kdj_divergence(df)
+divergence_type = kdj_divergence["type"]
+divergence_strength = kdj_divergence["strength"]
+divergence_desc = kdj_divergence["description"]
+
+# 背离分析结果
+divergence_rule = "顶背离：价格新高但KDJ不新高(卖出信号)；底背离：价格新低但KDJ不新低(买入信号)"
+if divergence_type == "顶背离":
+    divergence_emoji = "🧊"
+    divergence_result = f"{divergence_emoji} {divergence_type}({divergence_desc})"
+elif divergence_type == "底背离":
+    divergence_emoji = "🔥"
+    divergence_result = f"{divergence_emoji} {divergence_type}({divergence_desc})"
+else:
+    divergence_emoji = "⚪"
+    divergence_result = f"{divergence_emoji} {divergence_type}({divergence_desc})"
+
+# ADX判定（趋势强度指标）
+adx_value = latest.get('ADX', np.nan)
+di_plus = latest.get('DI_plus', np.nan)
+di_minus = latest.get('DI_minus', np.nan)
+adx_rule = "ADX < 25 震荡趋势；ADX > 25 有趋势；ADX > 40 强趋势；结合+DI和-DI判定方向"
+adx_base = "中性"; adx_emoji = "⚪"; adx_num = 0
+if not pd.isna(adx_value):
+    if adx_value < 25:
+        adx_base = "震荡趋势(无明确方向)"; adx_emoji = "⚪"; adx_num = 0
+    elif adx_value > 40:
+        # 强趋势，判断方向
+        if not pd.isna(di_plus) and not pd.isna(di_minus):
+            if di_plus > di_minus:
+                adx_base = "强上升趋势"; adx_emoji = "🔥"; adx_num = 1
+            else:
+                adx_base = "强下降趋势"; adx_emoji = "🧊"; adx_num = -1
+        else:
+            adx_base = "强趋势(方向待定)"; adx_emoji = "🚨"; adx_num = 0
+    else:  # 25 <= adx <= 40
+        # 中等趋势，判断方向
+        if not pd.isna(di_plus) and not pd.isna(di_minus):
+            if di_plus > di_minus:
+                adx_base = "中等上升趋势"; adx_emoji = "🔥"; adx_num = 1
+            else:
+                adx_base = "中等下降趋势"; adx_emoji = "🧊"; adx_num = -1
+        else:
+            adx_base = "中等趋势(方向待定)"; adx_emoji = "⚪"; adx_num = 0
+adx_result = f"{adx_emoji} {adx_base}"
+
 # 波动率显示用变量（使用五维信号中的数据）
 vol_volatility_rule = "历史波动率上升+布林带放宽为波动率增加；反之为波动率回落"
 if volatility_sig == 1:
@@ -398,6 +1009,13 @@ indicators_rows = [
     {"🔎": "📊", "指标": "量MA5", "数值": _fmt(vol_ma5, 0), "判定规则": vol_rule, "判定结果": vol_result, "数值评分": vol_num},
     {"🔎": "📊", "指标": "量比", "数值": (vol_ratio_disp if isinstance(vol_ratio_disp, str) else _fmt(vol_ratio, 2)), "判定规则": vol_rule, "判定结果": vol_result, "数值评分": vol_num},
     {"🔎": "🌊", "指标": "RSI(14)", "数值": _fmt(rsi_value), "判定规则": rsi_rule, "判定结果": rsi_result, "数值评分": rsi_num},
+    {"🔎": "🌀", "指标": "KDJ-K值", "数值": _fmt(k_value), "判定规则": kdj_rule, "判定结果": kdj_result, "数值评分": kdj_num},
+    {"🔎": "🌀", "指标": "KDJ-D值", "数值": _fmt(d_value), "判定规则": kdj_rule, "判定结果": kdj_result, "数值评分": kdj_num},
+    {"🔎": "🌀", "指标": "KDJ-J值", "数值": _fmt(j_value), "判定规则": kdj_rule, "判定结果": kdj_result, "数值评分": kdj_num},
+    {"🔎": "🔮", "指标": "KDJ背离分析", "数值": divergence_type, "判定规则": divergence_rule, "判定结果": divergence_result, "数值评分": divergence_strength},
+    {"🔎": "⚡", "指标": "ADX(趋势强度)", "数值": _fmt(adx_value), "判定规则": adx_rule, "判定结果": adx_result, "数值评分": adx_num},
+    {"🔎": "⚡", "指标": "+DI(上升力度)", "数值": _fmt(di_plus), "判定规则": adx_rule, "判定结果": adx_result, "数值评分": adx_num},
+    {"🔎": "⚡", "指标": "-DI(下降力度)", "数值": _fmt(di_minus), "判定规则": adx_rule, "判定结果": adx_result, "数值评分": adx_num},
     {"🔎": "🌪", "指标": "历史波动率HV20", "数值": f"{_fmt(hv20_current)}%", "判定规则": vol_volatility_rule, "判定结果": vol_volatility_result, "数值评分": volatility_sig},
     {"🔎": "🌪", "指标": "布林带宽度", "数值": f"{_fmt(bb_width_current)}%", "判定规则": vol_volatility_rule, "判定结果": vol_volatility_result, "数值评分": volatility_sig},
 ]
@@ -602,6 +1220,31 @@ with st.expander("📚 规则与映射说明", expanded=False):
 - 有利卖方 (+1)：HV20上升>5% 或 布林带宽度>均值×1.1（波动率增加，期权价格上升）
 - 有利买方 (-1)：HV20下降>5% 或 布林带宽度<均值×0.9（波动率回落，期权价格便宜）
 - 中性 (0)：波动率变化在正常范围内
+
+### 二、辅助技术指标规则（参考性判断）
+
+6) KDJ随机指标 (Stochastic Oscillator)
+- **超买超卖判断**：
+  - 超卖区域：K值或D值 < 20，为潜在买入信号
+  - 超买区域：K值或D值 > 80，为潜在卖出信号
+  - 正常区间：20-80之间为中性区域
+
+- **金叉与死叉**：
+  - 金叉（买入信号）：K线自下向上穿越D线
+    - 低位金叉（K<20）：信号更强，看涨概率高
+    - 高位金叉（K>50）：信号较弱，可能为反弹
+  - 死叉（卖出信号）：K线自上向下穿越D线
+    - 高位死叉（K>80）：信号更强，看跌概率高
+    - 低位死叉（K<50）：信号较弱，可能为回调
+
+- **背离现象**（可靠性最高的信号）：
+  - 顶背离：股价创新高但KDJ指标不创新高，预示上涨动能衰竭
+  - 底背离：股价创新低但KDJ指标不创新低，预示下跌动能衰竭
+
+- **期权策略应用**：
+  - 低位金叉时：可考虑买入Call或卖出Put策略
+  - 高位死叉时：可考虑买入Put或卖出Call策略
+  - 背离信号：是趋势反转的重要预警，建议调整仓位结构
 
 ### 三、策略映射
 - 总信号分 = 趋势 + 动能 + 位置 + 能量 + 波动率 ∈ [-5, +5]

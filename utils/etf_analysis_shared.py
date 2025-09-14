@@ -133,6 +133,39 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["BB_Width"] = ((df["BB_Upper"] - df["BB_Lower"]) / df["BB_Middle"]) * 100
     # 布林带宽度5日均值（平滑波动率）
     df["BB_Width_MA5"] = df["BB_Width"].rolling(5).mean()
+    
+    # ADX 指标（Average Directional Index）- 趋势强度指标
+    # 计算TR（True Range）
+    df['HL'] = df['最高'] - df['最低']
+    df['HC'] = abs(df['最高'] - df['收盘'].shift(1))
+    df['LC'] = abs(df['最低'] - df['收盘'].shift(1))
+    df['TR'] = df[['HL', 'HC', 'LC']].max(axis=1)
+    
+    # 计算DM（Directional Movement）
+    df['DM_plus'] = np.where((df['最高'] - df['最高'].shift(1)) > (df['最低'].shift(1) - df['最低']),
+                             np.maximum(df['最高'] - df['最高'].shift(1), 0), 0)
+    df['DM_minus'] = np.where((df['最低'].shift(1) - df['最低']) > (df['最高'] - df['最高'].shift(1)),
+                              np.maximum(df['最低'].shift(1) - df['最低'], 0), 0)
+    
+    # 计算ATR（14日平均真实范围）
+    period = 14
+    df['ATR'] = df['TR'].rolling(window=period).mean()
+    
+    # 计算DI（Directional Indicator）
+    df['DI_plus'] = 100 * (df['DM_plus'].rolling(window=period).mean() / df['ATR'])
+    df['DI_minus'] = 100 * (df['DM_minus'].rolling(window=period).mean() / df['ATR'])
+    
+    # 计算DX（Directional Index）
+    df['DI_diff'] = abs(df['DI_plus'] - df['DI_minus'])
+    df['DI_sum'] = df['DI_plus'] + df['DI_minus']
+    df['DX'] = 100 * (df['DI_diff'] / df['DI_sum'].replace(0, np.nan))
+    
+    # 计算ADX（DX的14日移动平均）
+    df['ADX'] = df['DX'].rolling(window=period).mean()
+    
+    # 清理临时列
+    df = df.drop(['HL', 'HC', 'LC', 'TR', 'DM_plus', 'DM_minus', 'DI_diff', 'DI_sum', 'DX'], axis=1)
+    
     return df
 
 
