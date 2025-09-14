@@ -4,7 +4,16 @@ import numpy as np
 import plotly.graph_objects as go
 from utils.etf_analysis_shared import load_etf_data, calculate_technical_indicators
 from utils.etf_analysis_shared import create_etf_chart
-from pages.etf技术分析 import ETF_CONFIG
+
+# ETF配置（与ETF技术分析页面保持一致）
+ETF_CONFIG = {
+    "科创50ETF (588000)": "588000",
+    "中证500ETF (510500)": "510500", 
+    "上证50ETF (510050)": "510050",
+    "创业板ETF (159915)": "159915",
+    "沪深300ETF (510300)": "510300",
+    "深证100ETF (159901)": "159901"
+}
 
 # 支撑点和压力点分析函数
 def calculate_support_resistance(df: pd.DataFrame, window: int = 20) -> dict:
