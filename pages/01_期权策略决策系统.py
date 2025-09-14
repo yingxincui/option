@@ -174,6 +174,29 @@ support_resistance = calculate_support_resistance(df)
 # 1) 趋势（MA）
 ma_bull = (latest['收盘'] > latest['MA20']) and (latest['MA5'] > latest['MA10'] > latest['MA20'])
 ma_bear = (latest['收盘'] < latest['MA20']) and (latest['MA5'] < latest['MA10'] < latest['MA20'])
+
+# 检测特殊情况：多头排列中的5日线下穿10日线（正向比率价差信号）
+ratio_spread_signal = False
+ratio_spread_desc = ""
+if len(df) >= 5:  # 确保有足够的历史数据
+    # 检查前期是否为多头排列
+    lookback_days = min(5, len(df) - 1)
+    recent_ma_bull = False
+    
+    for i in range(1, lookback_days + 1):
+        prev_data = df.iloc[-(i+1)]
+        if (prev_data['收盘'] > prev_data['MA20']) and (prev_data['MA5'] > prev_data['MA10'] > prev_data['MA20']):
+            recent_ma_bull = True
+            break
+    
+    # 检测5日线下穿10日线
+    ma5_cross_down = (prev['MA5'] >= prev['MA10']) and (latest['MA5'] < latest['MA10'])
+    
+    # 确认条件：前期多头排列 + 当前5日线下穿10日线 + 仍在MA20之上
+    if recent_ma_bull and ma5_cross_down and latest['收盘'] > latest['MA20']:
+        ratio_spread_signal = True
+        ratio_spread_desc = "多头排列中5日线下穿10日线，建议正向比率价差策略"
+
 ma_sig = 1 if ma_bull else (-1 if ma_bear else 0)
 
 # 2) 动能（MACD）
@@ -208,13 +231,67 @@ hv20_prev = prev.get('HV20', np.nan) if len(df) >= 2 else np.nan
 bb_width_current = latest.get('BB_Width', np.nan)
 bb_width_ma5 = latest.get('BB_Width_MA5', np.nan)
 
-# 判定波动率变化
+# 计算当前波动率在过去一年的百分位数
+hv_percentile = np.nan
+bb_percentile = np.nan
+if len(df) >= 252:  # 至少一年的数据
+    # 获取过去一年的HV20数据
+    past_year_hv = df.tail(252)['HV20'].dropna()
+    if len(past_year_hv) > 50 and not pd.isna(hv20_current):  # 确保有足够数据
+        hv_percentile = (past_year_hv <= hv20_current).sum() / len(past_year_hv) * 100
+    
+    # 获取过去一年的布林带宽度数据
+    past_year_bb = df.tail(252)['BB_Width'].dropna()
+    if len(past_year_bb) > 50 and not pd.isna(bb_width_current):
+        bb_percentile = (past_year_bb <= bb_width_current).sum() / len(past_year_bb) * 100
+elif len(df) >= 120:  # 至少半年的数据
+    # 使用半年数据作为替代
+    past_half_year_hv = df.tail(120)['HV20'].dropna()
+    if len(past_half_year_hv) > 25 and not pd.isna(hv20_current):
+        hv_percentile = (past_half_year_hv <= hv20_current).sum() / len(past_half_year_hv) * 100
+    
+    past_half_year_bb = df.tail(120)['BB_Width'].dropna()
+    if len(past_half_year_bb) > 25 and not pd.isna(bb_width_current):
+        bb_percentile = (past_half_year_bb <= bb_width_current).sum() / len(past_half_year_bb) * 100
+
+# 根据波动率百分位数优化判定逻辑
 hv_change = 0
 bb_change = 0
-if not pd.isna(hv20_current) and not pd.isna(hv20_prev):
-    hv_change = 1 if hv20_current > hv20_prev * 1.05 else (-1 if hv20_current < hv20_prev * 0.95 else 0)
-if not pd.isna(bb_width_current) and not pd.isna(bb_width_ma5):
-    bb_change = 1 if bb_width_current > bb_width_ma5 * 1.1 else (-1 if bb_width_current < bb_width_ma5 * 0.9 else 0)
+volatility_level = "中等"  # 波动率水平描述
+
+# 基于百分位数的波动率判定
+if not pd.isna(hv_percentile):
+    if hv_percentile >= 80:
+        hv_change = 1  # 高波动率，有利卖方
+        volatility_level = "极高"
+    elif hv_percentile >= 60:
+        hv_change = 1  # 较高波动率，有利卖方
+        volatility_level = "较高"
+    elif hv_percentile <= 20:
+        hv_change = -1  # 低波动率，有利买方
+        volatility_level = "极低"
+    elif hv_percentile <= 40:
+        hv_change = -1  # 较低波动率，有利买方
+        volatility_level = "较低"
+    else:
+        hv_change = 0  # 中等波动率
+        volatility_level = "中等"
+else:
+    # 回退到原有逻辑
+    if not pd.isna(hv20_current) and not pd.isna(hv20_prev):
+        hv_change = 1 if hv20_current > hv20_prev * 1.05 else (-1 if hv20_current < hv20_prev * 0.95 else 0)
+
+if not pd.isna(bb_percentile):
+    if bb_percentile >= 80:
+        bb_change = 1  # 高波动率
+    elif bb_percentile <= 20:
+        bb_change = -1  # 低波动率
+    else:
+        bb_change = 0  # 中等波动率
+else:
+    # 回退到原有逻辑
+    if not pd.isna(bb_width_current) and not pd.isna(bb_width_ma5):
+        bb_change = 1 if bb_width_current > bb_width_ma5 * 1.1 else (-1 if bb_width_current < bb_width_ma5 * 0.9 else 0)
 
 # 波动率信号（+1有利卖方，-1有利买方）
 if hv_change > 0 or bb_change > 0:
@@ -310,6 +387,20 @@ def create_strategy_payoff_chart(strategy_name: str, current_price: float) -> go
                          (price_range - k1) - premium_paid))
         
         title = f"牛市看涨价差策略盈亏图\n买入{k1:.2f}Call，卖出{k2:.2f}Call"
+    elif "正向比率价差" in strategy_name or "Long Call Ratio" in strategy_name:
+        # 正向比率价差：买入1才Call，卖入2才Call
+        k1 = current_price * 1.0   # 买入Call行权价（平值）
+        k2 = current_price * 1.05  # 卖出Call行权价（虚值）
+        premium_long = current_price * 0.03   # 买入Call权利金
+        premium_short = current_price * 0.015  # 卖出Call权利金（每才）
+        net_premium = premium_long - 2 * premium_short  # 净支出（1:2比例）
+        
+        # 正向比率价差盈亏计算
+        payoff = np.where(price_range <= k1, -net_premium,
+                 np.where(price_range <= k2, (price_range - k1) - net_premium,
+                         (k2 - k1) - 2 * (price_range - k2) - net_premium))
+        
+        title = f"正向比率价差策略盈亏图\n买入1手{k1:.2f}Call，卖入2手{k2:.2f}Call"
         
     elif "熊市看跌价差" in strategy_name or "Bear Put Spread" in strategy_name:
         # 熊市看跌价差：买入高行权价Put，卖出低行权价Put
@@ -441,7 +532,17 @@ advice = ""
 explain = ""
 extra = []
 
-if score >= 4:
+# 优先检查正向比率价差信号
+if ratio_spread_signal:
+    advice = "正向比率价差 (Long Call Ratio Spread)"
+    explain = f"{ratio_spread_desc}，适合做多但波动率增加的环境。"
+    extra = [
+        "🎯 **入场策略**：买入1手平值Call，同时卖入2手虚值Call（如买入1手105Call+卖入2手110Call）",
+        "💰 **成本控制**：策略可能为净收入或低成本建仓，但上方风险无限",
+        "⚠️ **风险控制**：设置上方止损线，如突破110且加速上涨即平仓",
+        "😨 **善后措施**：若价格在105-110区间盘整可获得最大收益；突破110后可补买Call对冲或平仓"
+    ]
+elif score >= 4:
     advice = "牛市看涨价差 + 卖出看跌 (Bull Call Spread + Sell Put)"
     explain = "极强多头信号+高波动率环境，组合策略可同时受益于方向性和波动率。"
     extra = [
@@ -533,6 +634,8 @@ col_strategy, col_chart = st.columns([1.2, 1])
 
 with col_strategy:
     st.markdown(f"**标的**：{sel_label}  |  **总信号分**：{score:+d}")
+    if ratio_spread_signal:
+        st.markdown(f"**特殊信号**：💪 {ratio_spread_desc}")
     st.markdown(f"**核心策略**：{advice}")
     st.markdown(f"**策略说明**：{explain}")
     if extra:
@@ -1005,6 +1108,7 @@ vol_volatility_result = f"{vol_volatility_emoji} {vol_volatility_base}"
 indicators_rows = [
     {"🔎": "💰", "指标": "收盘价", "数值": _fmt(latest.get("收盘")), "判定规则": "-", "判定结果": "-", "数值评分": ""},
     {"🔎": "🏁", "指标": "开盘价", "数值": _fmt(latest.get("开盘")), "判定规则": "-", "判定结果": "-", "数值评分": ""},
+    {"🔎": "📈", "指标": "是否多头排列", "数值": "是" if ma_bull else "否", "判定规则": "MA5 > MA10 > MA20 且 收盘 > MA20", "判定结果": ma_result, "数值评分": ma_num},
     {"🔎": "📈", "指标": "MA5", "数值": _fmt(latest.get("MA5")), "判定规则": ma_rule, "判定结果": ma_result, "数值评分": ma_num},
     {"🔎": "📈", "指标": "MA10", "数值": _fmt(latest.get("MA10")), "判定规则": ma_rule, "判定结果": ma_result, "数值评分": ma_num},
     {"🔎": "📈", "指标": "MA20", "数值": _fmt(latest.get("MA20")), "判定规则": ma_rule, "判定结果": ma_result, "数值评分": ma_num},
@@ -1027,6 +1131,7 @@ indicators_rows = [
     {"🔎": "⚡", "指标": "-DI(下降力度)", "数值": _fmt(di_minus), "判定规则": adx_rule, "判定结果": adx_result, "数值评分": adx_num},
     {"🔎": "🌪", "指标": "历史波动率HV20", "数值": f"{_fmt(hv20_current)}%", "判定规则": vol_volatility_rule, "判定结果": vol_volatility_result, "数值评分": volatility_sig},
     {"🔎": "🌪", "指标": "布林带宽度", "数值": f"{_fmt(bb_width_current)}%", "判定规则": vol_volatility_rule, "判定结果": vol_volatility_result, "数值评分": volatility_sig},
+    {"🔎": "📊", "指标": "HV百分位数", "数值": f"{_fmt(hv_percentile, 1)}%" if not pd.isna(hv_percentile) else "-", "判定规则": "HV在过去252日中的百分位数：>80高、<20低", "判定结果": f"{vol_volatility_result.split()[0]} {volatility_level}波动率", "数值评分": volatility_sig},
 ]
 
 ind_df = pd.DataFrame(indicators_rows)
