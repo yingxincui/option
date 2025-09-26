@@ -133,6 +133,10 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["BB_Width"] = ((df["BB_Upper"] - df["BB_Lower"]) / df["BB_Middle"]) * 100
     # 布林带宽度5日均值（平滑波动率）
     df["BB_Width_MA5"] = df["BB_Width"].rolling(5).mean()
+    # Donchian 20（日内风控所需：此前20日高/低，不含当日）
+    # 上轨为此前20个交易日最高价（不包含今日），下轨为此前20个交易日最低价（不包含今日）
+    df["DonchianHigh20Prev"] = df["最高"].rolling(20).max().shift(1)
+    df["DonchianLow20Prev"] = df["最低"].rolling(20).min().shift(1)
     
     # ADX 指标（Average Directional Index）- 趋势强度指标
     # 计算TR（True Range）

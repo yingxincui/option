@@ -166,6 +166,18 @@ if df is None or df.empty:
 df = calculate_technical_indicators(df)
 latest = df.iloc[-1]
 prev = df.iloc[-2] if len(df) >= 2 else latest
+# ——— Donchian 20日突破风控（用于卖方仓位管理与移仓提示） ———
+don_high_prev = latest.get('DonchianHigh20Prev', np.nan)
+don_low_prev = latest.get('DonchianLow20Prev', np.nan)
+don_break_up = (not np.isnan(don_high_prev)) and (latest['收盘'] > don_high_prev)
+don_break_down = (not np.isnan(don_low_prev)) and (latest['收盘'] < don_low_prev)
+
+# 将Donchian风控要点合并到执行要点中，确保在“决策建议（置顶）”一并展示
+_don_extra_notes = []
+if don_break_up:
+    _don_extra_notes.append("风控：今日收盘上破此前20日最高，逐步减仓卖购(Call Short)腿，考虑双向或反向移仓（如看涨价差/买腿覆盖）。")
+if don_break_down:
+    _don_extra_notes.append("风控：今日收盘下破此前20日最低，逐步减仓卖沽(Put Short)腿，考虑双向或反向移仓（如看跌价差/买腿覆盖）。")
 
 # 计算支撑点和压力点分析
 support_resistance = calculate_support_resistance(df)
@@ -638,10 +650,33 @@ with col_strategy:
         st.markdown(f"**特殊信号**：💪 {ratio_spread_desc}")
     st.markdown(f"**核心策略**：{advice}")
     st.markdown(f"**策略说明**：{explain}")
+    # 固定展示 Donchian 风控状态（未触发时也显示），包含当前价并高亮
+    _don_status = "上破" if don_break_up else ("下破" if don_break_down else "未触发")
+    don_high_disp = ("-" if (not isinstance(don_high_prev, (int, float, np.floating)) or np.isnan(don_high_prev)) else f"{don_high_prev:.2f}")
+    don_low_disp = ("-" if (not isinstance(don_low_prev, (int, float, np.floating)) or np.isnan(don_low_prev)) else f"{don_low_prev:.2f}")
+    curr_disp = f"{price:.2f}"
+    badge_color = ("#ffc107" if (_don_status != "未触发") else "#e9ecef")
+    text_color = ("#212529" if (_don_status == "未触发") else "#000")
+    st.markdown(
+        f"""
+        <div style="margin-top:6px;">
+          <span style="display:inline-block;padding:4px 8px;border-radius:6px;background:{badge_color};color:{text_color};font-weight:700;">
+            风控（20日突破）：{_don_status}
+          </span>
+          <span style="margin-left:8px;">当前价 <b>{curr_disp}</b> ｜ 前高 <b>{don_high_disp}</b> / 前低 <b>{don_low_disp}</b></span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     if extra:
         st.markdown("**执行要点**：")
         for x in extra:  # 显示所有执行要点，不再折叠
             st.markdown(f"- {x}")
+    # 20日突破风控提示：放在执行要点下方，明确对卖方腿的逐步减仓与移仓建议
+    if don_break_up:
+        st.warning("20日突破风控：今日收盘价突破此前20日最高价。建议逐步减仓卖购(Call Short)腿，必要时进行双向或反向移仓（如转为买方或构建看涨价差/覆盖腿）。")
+    if don_break_down:
+        st.warning("20日突破风控：今日收盘价跌破此前20日最低价。建议逐步减仓卖沽(Put Short)腿，必要时进行双向或反向移仓（如转为买方或构建看跌价差/覆盖腿）。")
 
 with col_chart:
     try:
@@ -1132,6 +1167,7 @@ indicators_rows = [
     {"🔎": "🌪", "指标": "历史波动率HV20", "数值": f"{_fmt(hv20_current)}%", "判定规则": vol_volatility_rule, "判定结果": vol_volatility_result, "数值评分": volatility_sig},
     {"🔎": "🌪", "指标": "布林带宽度", "数值": f"{_fmt(bb_width_current)}%", "判定规则": vol_volatility_rule, "判定结果": vol_volatility_result, "数值评分": volatility_sig},
     {"🔎": "📊", "指标": "HV百分位数", "数值": f"{_fmt(hv_percentile, 1)}%" if not pd.isna(hv_percentile) else "-", "判定规则": "HV在过去252日中的百分位数：>80高、<20低", "判定结果": f"{vol_volatility_result.split()[0]} {volatility_level}波动率", "数值评分": volatility_sig},
+    {"🔎": "🚦", "指标": "20日前高/前低", "数值": f"H:{_fmt(don_high_prev)} / L:{_fmt(don_low_prev)}", "判定规则": "收盘上破前20日最高→减仓卖购；下破前20日最低→减仓卖沽", "判定结果": ("上破" if don_break_up else ("下破" if don_break_down else "未触发")), "数值评分": ( -1 if (don_break_up or don_break_down) else 0 )},
 ]
 
 ind_df = pd.DataFrame(indicators_rows)
